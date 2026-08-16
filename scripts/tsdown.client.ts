@@ -263,8 +263,8 @@ function clientConfig(id: string, entry: string): UserConfig {
       entryFileNames: 'client.js',
       // The map is served from /plugins/<scoped-package>/client.js.map. The
       // browser resolves its local sources back into URLs that mirror the
-      // /packages/<group>/<package>/src directories; sourcesContent keeps them usable
-      // without exposing that tree as an HTTP route.
+      // repository's `src/` directory; sourcesContent keeps them usable without
+      // exposing that tree as an HTTP route.
       sourcemapPathTransform: browserSourcePath,
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
       footer: 'return module.exports; } });',

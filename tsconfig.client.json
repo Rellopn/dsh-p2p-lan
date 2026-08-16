@@ -1,6 +1,42 @@
-﻿{
-  "files": [],
-  "references": [
-    { "path": "./packages/p2p-lan/tsconfig.client.json" }
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "declaration": true,
+    "sourceMap": true,
+    "declarationMap": true,
+    "composite": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": [],
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo",
+    "paths": {
+      "@rellopn/dsh-p2p-lan/types": ["./src/types.ts"],
+      "@rellopn/dsh-p2p-lan/remote": ["./lib/typert.remote-client.d.ts"]
+    }
+  },
+  "files": [
+    "src/client/index.ts",
+    "src/client/P2PFooterAction.tsx",
+    "src/client/P2POverlay.tsx",
+    "src/client/P2PSettingsSection.tsx",
+    "src/client/panel-store.ts",
+    "src/types.ts"
   ]
 }
