@@ -1,27 +1,6 @@
-{
-  "extends": "../../../tsconfig.base.client.json",
-  "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types",
-    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
-  },
-  "files": [
-    "src/client/index.ts",
-    "src/client/P2PFooterAction.tsx",
-    "src/client/P2POverlay.tsx",
-    "src/client/P2PSettingsSection.tsx",
-    "src/client/panel-store.ts",
-    "src/types.ts"
-  ],
+﻿{
+  "files": [],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../api/remotes/tsconfig.client.json" },
-    { "path": "../../client/runtime" },
-    { "path": "../../client/ui-layout" },
-    { "path": "../../client/ui-settings" },
-    { "path": "../../client/ui-sidebar" },
-    { "path": "../../client/ui-slots" },
-    { "path": "../../settings/settings" },
-    { "path": "../../typert/protocol" }
+    { "path": "./packages/p2p-lan/tsconfig.client.json" }
   ]
 }

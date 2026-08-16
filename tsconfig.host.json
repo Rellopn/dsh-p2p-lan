@@ -1,20 +1,6 @@
-{
-  "extends": "../../../tsconfig.base.json",
-  "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types",
-    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
-  },
-  "include": ["src"],
-  "exclude": ["src/client"],
+﻿{
+  "files": [],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../core/session" },
-    { "path": "../../core/tools" },
-    { "path": "../../llm/llm" },
-    { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../../settings/settings" },
-    { "path": "../../typert/protocol" }
+    { "path": "./packages/p2p-lan/tsconfig.host.json" }
   ]
 }

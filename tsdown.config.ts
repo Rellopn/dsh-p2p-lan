@@ -1,7 +1,16 @@
-import { clientBundle } from '../../client/tsdown.client.ts'
+﻿import { defineConfig } from 'tsdown'
 
-export default clientBundle(
-  '@rellopn/dsh-p2p-lan',
-  ['lib/types/index.js', 'lib/types/invariant.js'],
-  { hostPhase: true },
-)
+export default defineConfig(({ env }) => {
+  const client = env?.DSH_BUILD_FACE === 'client'
+  return {
+    workspace: ['packages/*'],
+    entry: client ? '' : ['lib/types/{index,invariant}.js'],
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+  }
+})
