@@ -1,0 +1,6 @@
+# Build / dependency artifacts (self-contained for the standalone repo).
+node_modules/
+lib/
+*.tsbuildinfo
+*.tgz
+dist/

@@ -1,0 +1,18 @@
+# @rellopn/dsh-p2p-lan bundle patch — enables the P2P collaboration node
+# and its browser gate panel. Installed by `dsh plugin --profile <name> add
+# @rellopn/dsh-p2p-lan`; the row config below is the per-machine template
+# (edit nodeName / provider / model for each machine, or override via --patch).
+#
+# One row mounts both halves: the Loader imports the host plugin (./index),
+# and the client-modules scanner discovers the browser bundle from the same
+# entry's package.json `dsh.client` declaration (./client).
+
+- insert:
+    - id: p2p-lan
+      name: '@rellopn/dsh-p2p-lan'
+      config:
+        nodeName: 'unnamed'   # ← 这台机器全网唯一的名字（重名会报错+拒收）
+        capabilities: []      # ← 可选：这台 AI 能回答什么，如 ['rpc','export']
+        provider: ''          # ← 自动回复/把关判断用的 LLM 路由；留空=全部转人工
+        model: ''             # ← 对应模型 id
+        persona: ''           # ← 可选：回复草稿的角色提示
