@@ -36,7 +36,7 @@ export class Agent extends EventEmitter {
   private readonly store: Store
   private readonly directory: PeerDirectory
   private readonly replyEngine: ReplyEngine
-  private readonly sendWaitTimeoutMs: number
+  private sendWaitTimeoutMs: number
   private projects: ProjectEntry[] | undefined
   private readonly startProjectTask: ((project: ProjectEntry, body: string) => Promise<string>) | undefined
   private readonly pending = new Map<string, { resolve: (reply: Envelope | undefined) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -82,6 +82,11 @@ export class Agent extends EventEmitter {
     return this.store.checkInbox()
   }
 
+  /** All inbound messages (read-only snapshot; does NOT mark read). */
+  inboxSnapshot(): Envelope[] {
+    return this.store.inboxSnapshot()
+  }
+
   gateSnapshot(): Array<GateItem & { id: string }> {
     return [...this.gates.entries()].map(([id, item]) => ({ id, ...item }))
   }
@@ -89,6 +94,11 @@ export class Agent extends EventEmitter {
   /** Replace the project table (used by live settings edits). */
   setProjects(projects: ProjectEntry[] | undefined): void {
     this.projects = projects
+  }
+
+  /** Update the synchronous-reply timeout (used by live settings edits). */
+  setSendWaitTimeoutMs(ms: number): void {
+    this.sendWaitTimeoutMs = ms
   }
 
   /** Route one inbound envelope: resolve a pending wait, else inbox, else auto-reply/gate. */
@@ -116,13 +126,18 @@ export class Agent extends EventEmitter {
       return
     }
 
+    // Record every recognized request in the inbox too, so a human watching the
+    // node can see the incoming message (auto-reply/gate run on top of it).
+    this.store.deliverInbound(envelope)
+
     const draft = await this.replyEngine.draftReply(envelope)
     const forceGate = envelope.auto === true && (envelope.depth ?? 0) >= MAX_REPLY_DEPTH
 
     // A project-targeted request runs a real session in that project: the reply
     // is the AI's actual answer (never a hallucinated draft). Gated requests
-    // run the session on approval instead — see approveGate.
-    const project = this.resolveProject(envelope)
+    // run the session on approval instead — see approveGate. A plain request
+    // that merely NAMES a project also runs that project's session (see inferProject).
+    const project = this.resolveProject(envelope) ?? this.inferProject(envelope.body)
     if (project !== undefined) {
       if (draft.needsGate || forceGate) {
         this.gates.set(envelope.id, { original: envelope, draftBody: '' })
@@ -167,6 +182,20 @@ export class Agent extends EventEmitter {
     const projectName = envelope.to.project
     if (projectName === undefined) return undefined
     return this.projects?.find(entry => entry.name === projectName)
+  }
+
+  /**
+   * Infer a project from a plain (non project-targeted) message body: when the
+   * text names one of this node's projects, route the request into that
+   * project's real session so questions like "what files are in 智能船" read the
+   * actual directory instead of an auto-reply that has no filesystem access.
+   * Longest name wins so "智能船" is not shadowed by a hypothetical "智能".
+   */
+  private inferProject(body: string): ProjectEntry | undefined {
+    const matches = this.projects?.filter(entry => entry.name !== '' && body.includes(entry.name)) ?? []
+    if (matches.length === 0) return undefined
+    matches.sort((left, right) => right.name.length - left.name.length)
+    return matches[0]
   }
 
   /** Run the project session and return the AI's answer ('' when it cannot start). */

@@ -3,28 +3,34 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { Envelope, GateItem, PeerInfo, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
+import type { Config, Envelope, GateItem, PeerInfo, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$703270 {
     approveGate: (id: string, finalBody?: string) => Promise<RemoteResult<{ ok: boolean; }>>
     checkInbox: () => Promise<RemoteResult<Envelope[]>>
+    inboxSnapshot: () => Promise<RemoteResult<Envelope[]>>
     gateSnapshot: () => Promise<RemoteResult<Array<GateItem & { id: string; }>>>
     getProjects: () => Promise<RemoteResult<ProjectEntry[]>>
+    getConfig: () => Promise<RemoteResult<Config>>
     importWorkspaces: () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     peers: () => Promise<RemoteResult<PeerInfo[]>>
     rejectGate: (id: string) => Promise<RemoteResult<{ ok: boolean; }>>
     setProjects: (projects: ProjectEntry[]) => Promise<RemoteResult<{ ok: boolean; }>>
+    setConfig: (config: Config) => Promise<RemoteResult<{ ok: boolean; }>>
   }
   interface TypertRemoteMap {
     'p2p/approveGate': (id: string, finalBody?: string) => Promise<RemoteResult<{ ok: boolean; }>>
     'p2p/checkInbox': () => Promise<RemoteResult<Envelope[]>>
+    'p2p/inboxSnapshot': () => Promise<RemoteResult<Envelope[]>>
     'p2p/gateSnapshot': () => Promise<RemoteResult<Array<GateItem & { id: string; }>>>
     'p2p/getProjects': () => Promise<RemoteResult<ProjectEntry[]>>
+    'p2p/getConfig': () => Promise<RemoteResult<Config>>
     'p2p/importWorkspaces': () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     'p2p/peers': () => Promise<RemoteResult<PeerInfo[]>>
     'p2p/rejectGate': (id: string) => Promise<RemoteResult<{ ok: boolean; }>>
     'p2p/setProjects': (projects: ProjectEntry[]) => Promise<RemoteResult<{ ok: boolean; }>>
+    'p2p/setConfig': (config: Config) => Promise<RemoteResult<{ ok: boolean; }>>
   }
   interface TypertRemoteNamespaceMap {
     'p2p': TypertRemoteNamespace$703270

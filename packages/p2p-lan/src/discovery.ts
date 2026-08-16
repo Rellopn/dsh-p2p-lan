@@ -59,7 +59,7 @@ export function detectLanAddress(): string | undefined {
 /** Directory of currently-known peers, keyed by id. */
 export class Discovery extends EventEmitter {
   private readonly identity: NodeIdentity
-  private readonly capabilities: string[]
+  private capabilities: string[]
   private readonly host: string
   private readonly port: number
   private readonly autoDiscover: boolean
@@ -95,18 +95,7 @@ export class Discovery extends EventEmitter {
 
   /** Start advertising and listening. Idempotent. */
   start(): void {
-    for (const manual of this.manualPeers) {
-      this.upsert({
-        id: `manual:${manual.name}`,
-        name: manual.name,
-        capabilities: [],
-        projects: [],
-        host: manual.host,
-        port: manual.port,
-        lastSeen: Number.POSITIVE_INFINITY,
-        manual: true,
-      })
-    }
+    this.setManualPeers(this.manualPeers)
     if (!this.autoDiscover) return
 
     this.socket = createSocket({ type: 'udp4', reuseAddr: true })
@@ -144,6 +133,35 @@ export class Discovery extends EventEmitter {
   /** Replace the announced project names (used by live settings edits). */
   setProjects(names: string[]): void {
     this.projects = names
+  }
+
+  /** Replace the announced capability tags (used by live settings edits). */
+  setCapabilities(capabilities: string[]): void {
+    this.capabilities = capabilities
+  }
+
+  /**
+   * Reconcile the manual-peer directory with a new list (live settings edits):
+   * drop manual entries no longer listed, then upsert the rest (adds new ones,
+   * refreshes host/port for ones that moved).
+   */
+  setManualPeers(peers: ManualPeer[]): void {
+    const nextNames = new Set(peers.map(peer => peer.name))
+    for (const [id, peer] of this.directory) {
+      if (peer.manual && !nextNames.has(peer.name)) this.directory.delete(id)
+    }
+    for (const manual of peers) {
+      this.upsert({
+        id: `manual:${manual.name}`,
+        name: manual.name,
+        capabilities: [],
+        projects: [],
+        host: manual.host,
+        port: manual.port,
+        lastSeen: Date.now(),
+        manual: true,
+      })
+    }
   }
 
   resolveById(id: string): PeerInfo | undefined {

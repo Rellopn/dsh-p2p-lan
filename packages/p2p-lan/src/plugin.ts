@@ -12,10 +12,16 @@ import { Agent, type GateItem, type SendTarget } from './agent.ts'
 import { detectLanAddress, Discovery, type PeerInfo } from './discovery.ts'
 import { createIdentity, type NodeIdentity } from './identity.ts'
 import type { Envelope } from './messages.ts'
-import { createLlmReplyEngine } from './reply-engine.ts'
+import { createLlmReplyEngine, type MutableReplyEngine } from './reply-engine.ts'
 import { Store } from './store.ts'
 import { Transport } from './transport.ts'
-import { mergeWorkspaces, normalizeProjects, validProjects, type ManualPeer, type ProjectEntry, type Sensitivity } from './config.ts'
+import { mergeWorkspaces, normalizeProjects, validProjects, type ProjectEntry } from './config.ts'
+import type { Config as ConfigModel } from './types.ts'
+
+// The wire type lives in ./types.ts (exported via the `./types` subpath for the
+// client/Remote face); re-export it here so this module can use the `Config`
+// type name alongside the `Config` z-schema value below.
+export type Config = ConfigModel
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -26,22 +32,8 @@ declare module '@deepseek-ai/cordis' {
 export const name = 'p2p-lan'
 export const inject = ['tools', 'llm']
 
-/** Plugin configuration. */
-export interface Config {
-  nodeName: string
-  capabilities: string[]
-  autoDiscover: boolean
-  manualPeers: ManualPeer[]
-  port: number
-  sensitivity: Sensitivity
-  sendWaitTimeoutMs: number
-  provider: string
-  model: string
-  persona: string
-  projects: ProjectEntry[]
-}
-
-export const Config: z<Config> = z.object({
+/** Plugin configuration schema (defaults apply at mount time). The `Config` type lives in ./types.ts. */
+export const Config: z<ConfigModel> = z.object({
   nodeName: z.string().default('unnamed'),
   capabilities: z.array(z.string()).default([]),
   autoDiscover: z.boolean().default(true),
@@ -59,21 +51,89 @@ export const Config: z<Config> = z.object({
   })).default([]),
 })
 
+/** Settings schema: the full config, editable + persisted from the browser settings panel. */
+export const SettingsSchema: z<ConfigModel> = z.object({
+  nodeName: z.string(),
+  capabilities: z.array(z.string()),
+  autoDiscover: z.boolean(),
+  manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })),
+  port: z.number(),
+  sensitivity: z.union(['lenient', 'standard', 'strict'] as const),
+  sendWaitTimeoutMs: z.number(),
+  provider: z.string(),
+  model: z.string(),
+  persona: z.string(),
+  projects: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    broadcast: z.boolean().default(false),
+  })),
+})
+
+/** A reused per-project agent session (the owned create() handle). */
+type ProjectSessionHandle = Awaited<ReturnType<NonNullable<Context['agents']>['create']>>
+type AgentsRegistry = NonNullable<Context['agents']>
+/** Structural view of the agent-default-model service (avoids importing it). */
+type AgentDefaultModelService = {
+  currentSelection(): { provider: string; model: string } | undefined
+}
+
 /** The composed P2P node, provided as `ctx.p2p` and remoted to the client as `remote.p2p`. */
 export class P2PService extends TypertRemoteService {
-  readonly identity: NodeIdentity
-  readonly discovery: Discovery
-  readonly transport: Transport
-  readonly store: Store
-  readonly agent: Agent
+  private identity!: NodeIdentity
+  private transport!: Transport
+  private store!: Store
+  private discovery!: Discovery
+  private agent!: Agent
+  private replyEngine!: MutableReplyEngine
+
+  /** Latest applied config snapshot. */
+  private config: Config
+  /** Whether transport + discovery are currently running. */
+  private started = false
+
   /** Authoritative project-table source (settings-resolved, incl. in-progress rows). */
   private projectsSource: () => ProjectEntry[] = () => []
   /** Durably persist the project table (settings replace). */
   private projectsPersist: (projects: ProjectEntry[]) => Promise<void> = async () => {}
+  /** Authoritative full-config source (settings-resolved). */
+  private configSource: () => Config = () => this.config
+  /** Durably persist the full config (settings replace). */
+  private configPersist: (config: Config) => Promise<void> = async () => {}
+
+  /** Per-project reused agent session, keyed by project path. */
+  private readonly projectSessions = new Map<string, { handle: ProjectSessionHandle; sessionId: SessionId }>()
+  /** Per-project serial queue so followups on one session never overlap. */
+  private readonly projectQueues = new Map<string, Promise<unknown>>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'p2p')
+    this.config = { ...config }
+    this.buildNode(this.config)
+
+    this.ctx.effect(() => {
+      this.startNode()
+      return () => {
+        this.stopNode()
+      }
+    }, 'p2p-lan: transport + discovery lifecycle')
+
+    // Dispose every reused project session when this node unloads.
+    this.ctx.effect(() => {
+      return () => {
+        for (const { handle } of this.projectSessions.values()) {
+          void handle.dispose()
+        }
+        this.projectSessions.clear()
+        this.projectQueues.clear()
+      }
+    }, 'p2p-lan: project session cleanup')
+  }
+
+  /** Construct the node core from a config snapshot. */
+  private buildNode(config: Config): void {
     const projects = normalizeProjects(config.projects)
+    const broadcastProjects = projects.filter(entry => entry.broadcast).map(entry => entry.name)
     this.identity = createIdentity(config.nodeName)
     const host = detectLanAddress() ?? '127.0.0.1'
     this.transport = new Transport({ port: config.port })
@@ -87,47 +147,102 @@ export class P2PService extends TypertRemoteService {
       projects,
     })
     this.store = new Store(this.transport)
-    const replyEngine = createLlmReplyEngine(this.ctx, {
+    this.replyEngine = createLlmReplyEngine(this.ctx, {
       provider: config.provider,
       model: config.model,
       sensitivity: config.sensitivity,
       persona: config.persona,
+      nodeName: config.nodeName,
+      projects: broadcastProjects,
     })
-    const startProjectTask = async (project: ProjectEntry, body: string): Promise<string> => {
-      try {
-        const agents = this.ctx.get('agents')
-        const defaultModel = this.ctx.get('agentDefaultModel')
-        if (agents === undefined || defaultModel === undefined) {
-          this.ctx.logger.warn('p2p-lan: startProjectTask skipped (agents or agentDefaultModel unavailable)')
-          return ''
-        }
-        const selection = defaultModel.currentSelection()
-        if (selection === undefined) {
-          this.ctx.logger.warn('p2p-lan: startProjectTask skipped (no current model selection)')
-          return ''
-        }
-        const sessionId = SessionId(`session-${randomUUID()}`)
-        const { agent } = await agents.create({
-          sessionId,
-          meta: { cwd: project.path },
-          agentOptions: { provider: selection.provider, model: selection.model },
-        })
-        // Attach the session to the workspace whose path matches the project, so
-        // the collaboration appears grouped (not "ungrouped") in the sidebar.
-        const registry = this.ctx.get('workspaceRegistry') as
-          | { list(): Array<{ path: string; attachSession(id: SessionId): Promise<void> }> }
-          | undefined
-        if (registry !== undefined) {
-          const workspace = registry.list().find(entry => entry.path === project.path)
-          if (workspace !== undefined) {
-            try {
-              await workspace.attachSession(sessionId)
-            } catch (error) {
-              this.ctx.logger.warn('p2p-lan: workspace attach failed')
-              this.ctx.logger.warn(error)
-            }
-          }
-        }
+    this.agent = new Agent(this.identity, this.store, this.discovery, this.replyEngine, {
+      sendWaitTimeoutMs: config.sendWaitTimeoutMs,
+      projects,
+      startProjectTask: this.startProjectTask,
+    })
+
+    this.transport.on('envelope', (envelope: Envelope) => {
+      void this.agent.handleInbound(envelope)
+    })
+    this.discovery.on('peer-online', () => {
+      void this.store.flush()
+    })
+  }
+
+  private startNode(): void {
+    this.transport.start()
+    this.discovery.start()
+    this.started = true
+  }
+
+  private stopNode(): void {
+    void this.transport.stop()
+    this.discovery.stop()
+    this.started = false
+  }
+
+  /** Rebuild the node core in place (heavy config changes): stop, rebuild, restart. */
+  private rebuildNode(config: Config): void {
+    const wasStarted = this.started
+    if (wasStarted) this.stopNode()
+    this.buildNode(config)
+    if (wasStarted) this.startNode()
+  }
+
+  /**
+   * Apply a full config snapshot from live settings. Heavy fields (nodeName /
+   * port / autoDiscover) rebuild the node core; light fields update in place
+   * without dropping the inbox/outbox or tearing down connections.
+   */
+  applyConfig(next: Config): void {
+    const prev = this.config
+    this.config = { ...next }
+
+    const heavyChanged = next.nodeName !== prev.nodeName
+      || next.port !== prev.port
+      || next.autoDiscover !== prev.autoDiscover
+    if (heavyChanged) {
+      this.rebuildNode(next)
+      return
+    }
+
+    const valid = validProjects(next.projects)
+    const broadcastProjects = valid.filter(entry => entry.broadcast).map(entry => entry.name)
+    this.replyEngine.updateOptions({
+      provider: next.provider,
+      model: next.model,
+      sensitivity: next.sensitivity,
+      persona: next.persona,
+      nodeName: next.nodeName,
+      projects: broadcastProjects,
+    })
+    this.discovery.setCapabilities(next.capabilities)
+    this.discovery.setManualPeers(next.manualPeers)
+    this.agent.setSendWaitTimeoutMs(next.sendWaitTimeoutMs)
+    this.discovery.setProjects(broadcastProjects)
+    this.agent.setProjects(valid)
+  }
+
+  private readonly startProjectTask = async (project: ProjectEntry, body: string): Promise<string> => {
+    try {
+      const agents = this.ctx.get('agents')
+      const defaultModel = this.ctx.get('agentDefaultModel')
+      if (agents === undefined || defaultModel === undefined) {
+        this.ctx.logger.warn('p2p-lan: startProjectTask skipped (agents or agentDefaultModel unavailable)')
+        return ''
+      }
+      const selection = defaultModel.currentSelection()
+      if (selection === undefined) {
+        this.ctx.logger.warn('p2p-lan: startProjectTask skipped (no current model selection)')
+        return ''
+      }
+
+      // Serialize requests per project so followups on the reused session never overlap.
+      const key = project.path
+      const run = async (): Promise<string> => {
+        const session = await this.ensureProjectSession(agents, defaultModel, project)
+        if (session === undefined) return ''
+        const agent = session.handle.agent
         await agent.whenIdle()
         const firstSeq = agent.session.seq
         agent.followup(createUserMessage({
@@ -147,33 +262,77 @@ export class P2PService extends TypertRemoteService {
           if (joined !== '') text = joined
         }
         return text
-      } catch (error) {
-        this.ctx.logger.warn('p2p-lan: startProjectTask failed')
-        this.ctx.logger.warn(error)
-        return ''
+      }
+
+      const previous = this.projectQueues.get(key) ?? Promise.resolve()
+      const queued = previous.then(run, run)
+      this.projectQueues.set(key, queued)
+      return await queued
+    } catch (error) {
+      this.ctx.logger.warn('p2p-lan: startProjectTask failed')
+      this.ctx.logger.warn(error)
+      return ''
+    }
+  }
+
+  /** Get — or create once — the reused agent session for one project. */
+  private readonly ensureProjectSession = async (
+    agents: AgentsRegistry,
+    defaultModel: AgentDefaultModelService,
+    project: ProjectEntry,
+  ): Promise<{ handle: ProjectSessionHandle; sessionId: SessionId } | undefined> => {
+    const key = project.path
+    const existing = this.projectSessions.get(key)
+    if (existing !== undefined) return existing
+
+    const selection = defaultModel.currentSelection()
+    if (selection === undefined) {
+      this.ctx.logger.warn('p2p-lan: no current model selection for project session')
+      return undefined
+    }
+
+    const sessionId = SessionId(`session-${randomUUID()}`)
+    // Compose the agent from the deployment's default agent preset (standard /
+    // minimal / …), so the collaboration agent carries the same tool set a
+    // normal session gets — not just the host-composition tools. A rosterless
+    // deployment (no agentPresets service) composes nothing, as before.
+    const presets = this.ctx.get('agentPresets')
+    let meta: { cwd: string; agentPreset?: string } = { cwd: project.path }
+    let setup: ((agentCtx: Context) => Promise<void>) | undefined
+    if (presets !== undefined) {
+      const preset = await presets.resolve()
+      meta = { cwd: project.path, agentPreset: preset.id }
+      setup = async (agentCtx) => {
+        await presets.mount(agentCtx, preset.id)
       }
     }
-    this.agent = new Agent(this.identity, this.store, this.discovery, replyEngine, {
-      sendWaitTimeoutMs: config.sendWaitTimeoutMs,
-      projects,
-      startProjectTask,
+    const handle = await agents.create({
+      sessionId,
+      meta,
+      agentOptions: { provider: selection.provider, model: selection.model },
+      ...(setup === undefined ? {} : { setup }),
     })
 
-    this.transport.on('envelope', (envelope: Envelope) => {
-      void this.agent.handleInbound(envelope)
-    })
-    this.discovery.on('peer-online', () => {
-      void this.store.flush()
-    })
-
-    this.ctx.effect(() => {
-      this.transport.start()
-      this.discovery.start()
-      return () => {
-        void this.transport.stop()
-        this.discovery.stop()
+    // Attach the session to the workspace whose path matches the project, so
+    // the collaboration appears grouped (not "ungrouped") in the sidebar.
+    const registry = this.ctx.get('workspaceRegistry') as
+      | { list(): Array<{ path: string; attachSession(id: SessionId): Promise<void> }> }
+      | undefined
+    if (registry !== undefined) {
+      const workspace = registry.list().find(entry => entry.path === project.path)
+      if (workspace !== undefined) {
+        try {
+          await workspace.attachSession(sessionId)
+        } catch (error) {
+          this.ctx.logger.warn('p2p-lan: workspace attach failed')
+          this.ctx.logger.warn(error)
+        }
       }
-    }, 'p2p-lan: transport + discovery lifecycle')
+    }
+
+    const entry = { handle, sessionId }
+    this.projectSessions.set(key, entry)
+    return entry
   }
 
   @Remote('peers')
@@ -184,6 +343,11 @@ export class P2PService extends TypertRemoteService {
   @Remote('checkInbox')
   checkInbox(): Envelope[] {
     return this.agent.checkInbox()
+  }
+
+  @Remote('inboxSnapshot')
+  inboxSnapshot(): Envelope[] {
+    return this.agent.inboxSnapshot()
   }
 
   @Remote('gateSnapshot')
@@ -224,8 +388,28 @@ export class P2PService extends TypertRemoteService {
     return { ok: true, added: next.length - current.length }
   }
 
+  @Remote('getConfig')
+  getConfig(): Config {
+    return this.configSource()
+  }
+
+  @Remote('setConfig')
+  async setConfig(config: Config): Promise<{ ok: boolean }> {
+    await this.configPersist(config)
+    return { ok: true }
+  }
+
   async send(target: SendTarget, body: string): Promise<'delivered' | 'queued' | 'offline'> {
     return this.agent.send(target, body)
+  }
+
+  /** Synchronous send-and-wait, normalized for the `p2p_send_and_wait` tool. */
+  async sendAndWait(target: SendTarget, body: string): Promise<{ status: 'reply' | 'timeout' | 'queued'; reply?: { from: string; body: string } }> {
+    const result = await this.agent.sendAndWait(target, body)
+    if (result.status === 'reply') {
+      return { status: 'reply', reply: { from: result.reply.from.name, body: result.reply.body } }
+    }
+    return { status: result.status }
   }
 
   /** Wire the settings-resolved project source + persistence into the service. */
@@ -237,47 +421,50 @@ export class P2PService extends TypertRemoteService {
     this.projectsPersist = persist
   }
 
-  /** Replace the actionable project table + announced names (used by live settings edits). */
-  updateProjects(projects: ProjectEntry[]): void {
-    const valid = validProjects(projects)
-    this.discovery.setProjects(valid.filter(entry => entry.broadcast).map(entry => entry.name))
-    this.agent.setProjects(valid)
+  /** Wire the settings-resolved full-config source + persistence into the service. */
+  attachConfigBridge(
+    source: () => Config,
+    persist: (config: Config) => Promise<void>,
+  ): void {
+    this.configSource = source
+    this.configPersist = persist
   }
 }
 
 export function apply(ctx: Context, config: Config): void {
   const p2p = new P2PService(ctx, config)
 
-  // Live settings: the static `projects` config is the base; a settings
-  // namespace layers user toggles (add/remove/edit + broadcast) on top. The
-  // dsh configuration-client boundary only exposes an allowlisted set of
-  // namespaces, so the browser reads/writes this one through the P2P remote
-  // (getProjects/setProjects) instead of settingsScope; the namespace stays the
-  // durable store of record Host-side.
-  const projectsSchema = z.object({
-    projects: z.array(z.object({
-      name: z.string(),
-      path: z.string(),
-      broadcast: z.boolean().default(false),
-    })),
-  })
-  const fallback = (): { projects: ProjectEntry[] } => ({ projects: config.projects })
-  let projectsScope: SettingsScope<{ projects: ProjectEntry[] }> | undefined
-  const source = (): { projects: ProjectEntry[] } => (projectsScope === undefined ? fallback() : projectsScope.get())
+  // Live settings: the static `config` is the base; a settings namespace layers
+  // the full editable config on top (node name, capability tags, discovery,
+  // ports, reply-engine route/gate bias, and the project table). The dsh
+  // configuration-client boundary only exposes an allowlisted set of namespaces,
+  // so the browser reads/writes this one through the P2P remote (getConfig /
+  // setConfig / getProjects / setProjects) instead of settingsScope; the
+  // namespace stays the durable store of record Host-side.
+  const fallback = (): Config => ({ ...config })
+  let configScope: SettingsScope<Config> | undefined
+  const source = (): Config => (configScope === undefined ? fallback() : configScope.get())
   ctx.inject(['settings'], (sctx) => {
-    projectsScope = sctx.settings.register(settingsNamespace('p2p'), projectsSchema, {
-      base: { projects: config.projects },
+    configScope = sctx.settings.register(settingsNamespace('p2p'), SettingsSchema, {
+      base: { ...config },
     })
-    p2p.updateProjects(source().projects)
-    projectsScope.watch(() => {
-      p2p.updateProjects(source().projects)
+    p2p.applyConfig(source())
+    configScope.watch(() => {
+      p2p.applyConfig(source())
     })
   })
+  p2p.attachConfigBridge(
+    () => source(),
+    async (next) => {
+      if (configScope === undefined) return
+      await configScope.replace({ ...next })
+    },
+  )
   p2p.attachProjectsBridge(
     () => source().projects,
     async (projects) => {
-      if (projectsScope === undefined) return
-      await projectsScope.replace({ projects })
+      if (configScope === undefined) return
+      await configScope.replace({ ...source(), projects })
     },
   )
 
@@ -358,11 +545,7 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     async execute(args): Promise<{ status: 'reply' | 'timeout' | 'queued'; reply?: { from: string; body: string } }> {
-      const result = await p2p.agent.sendAndWait(args.target, args.body)
-      if (result.status === 'reply') {
-        return { status: 'reply', reply: { from: result.reply.from.name, body: result.reply.body } }
-      }
-      return { status: result.status }
+      return p2p.sendAndWait(args.target, args.body)
     },
   }))
 

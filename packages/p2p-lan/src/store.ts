@@ -117,6 +117,11 @@ export class Store extends EventEmitter {
     return result
   }
 
+  /** All inbound messages, newest first; a read-only snapshot that does NOT consume. */
+  inboxSnapshot(): Envelope[] {
+    return this.inbox.map(entry => entry.envelope).reverse()
+  }
+
   /** Human opens a peer's thread: clear that peer's human unread. */
   markThreadRead(peerId: string): void {
     for (const entry of this.inbox) {

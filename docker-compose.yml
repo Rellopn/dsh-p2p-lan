@@ -1,0 +1,51 @@
+# Two-node LAN P2P demo: two dsh web nodes on ONE compose network.
+#   node A -> http://localhost:3180
+#   node B -> http://localhost:3280
+#
+# Build once:   docker compose build
+# Start:        docker compose up -d            (requires DEEPSEEK_API_KEY in env / .env)
+# Logs:         docker compose logs -f node-a
+# Stop:         docker compose down
+
+services:
+  node-a:
+    image: dsh-p2p-lan-node:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: p2p-a
+    environment:
+      NODE_ROLE: receiver
+      NODE_NAME: A
+      PEER_NAME: B
+      PEER_HOST: node-b          # compose resolves the peer by service name
+      PEER_PORT: "53420"
+      PORT: "53420"
+      PROVIDER: deepseek-official
+      MODEL: deepseek-v4-flash
+      SENSITIVITY: lenient
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in the environment or a .env file}"
+    ports:
+      - "3180:8080"              # host -> socat(0.0.0.0:8080) -> dsh web(127.0.0.1:3080)
+    restart: unless-stopped
+
+  node-b:
+    image: dsh-p2p-lan-node:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: p2p-b
+    environment:
+      NODE_ROLE: receiver
+      NODE_NAME: B
+      PEER_NAME: A
+      PEER_HOST: node-a
+      PEER_PORT: "53420"
+      PORT: "53420"
+      PROVIDER: deepseek-official
+      MODEL: deepseek-v4-flash
+      SENSITIVITY: lenient
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in the environment or a .env file}"
+    ports:
+      - "3280:8080"
+    restart: unless-stopped

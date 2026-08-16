@@ -37,6 +37,11 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  const inboxSnapshot: P2POverlayInjected['inboxSnapshot'] = async () => {
+    const result = await p2p.inboxSnapshot()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
   const approveGate: P2POverlayInjected['approveGate'] = async (id, finalBody) => {
     const result = await p2p.approveGate(id, finalBody)
     if (!result.ok) throw new Error(result.error.message)
@@ -54,6 +59,15 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     const result = await p2p.setProjects(projects)
     if (!result.ok) throw new Error(result.error.message)
   }
+  const getConfig: P2PSettingsInjected['getConfig'] = async () => {
+    const result = await p2p.getConfig()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+  const setConfig: P2PSettingsInjected['setConfig'] = async (config) => {
+    const result = await p2p.setConfig(config)
+    if (!result.ok) throw new Error(result.error.message)
+  }
   const importWorkspaces: P2PSettingsInjected['importWorkspaces'] = async () => {
     const result = await p2p.importWorkspaces()
     if (!result.ok) throw new Error(result.error.message)
@@ -69,16 +83,17 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
   ctx.slots.register({
     name: 'shell.overlay',
     id: 'p2p',
-    inject: (): P2POverlayInjected => ({ gateSnapshot, peers, approveGate, rejectGate }),
+    inject: (): P2POverlayInjected => ({ gateSnapshot, peers, inboxSnapshot, approveGate, rejectGate }),
   }, P2POverlay)
 
-  // Settings section: manage the project table + per-project broadcast toggles.
+  // Settings section: manage the full P2P config (identity, discovery, ports,
+  // reply-engine route/gate bias) plus the project table + per-project broadcast.
   ctx.slots.register({
     name: 'settings.section',
     id: 'p2p',
     order: 100,
     label: () => '协作',
-    inject: (): P2PSettingsInjected => ({ getProjects, setProjects, importWorkspaces }),
+    inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces }),
   }, P2PSettingsSection)
 
   return disposeRemote

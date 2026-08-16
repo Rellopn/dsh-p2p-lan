@@ -79,26 +79,43 @@ synchronously wait, and read async replies. Broadcast / capability routing are t
 
 ## Publishing
 
-One package is developed inside the harness monorepo but published under your `@rellopn`
-scope. `pnpm pack` rewrites the monorepo `workspace:^` deps to real registry versions
-(verified: `@deepseek-ai/dsh-*@^0.1.0-rc.5`, `@deepseek-ai/cordis@^4.0.1`,
-`schemastery@^3.18.1`). To publish:
+This is a self-contained standalone repo; `package.json` already carries real registry
+version ranges for the `@deepseek-ai/*` peer dependencies, so no `workspace:^` rewrite is
+needed. To publish under the `@rellopn` scope:
 
 ```bash
 # 1. Build both halves (host + client + typert remote face)
-pnpm run build:lib:host && pnpm run build:lib:client
+pnpm run build
 
-# 2. Pack (this is where workspace:^ becomes real versions)
-pnpm --dir packages/p2p/p2p-lan pack --pack-destination dist/p2p
+# 2. Pack (produces the tarball dsh plugin add / npm publish consume)
+pnpm --dir packages/p2p-lan pack --pack-destination dist
 
-# 3. Publish
-npm publish dist/p2p/rellopn-dsh-p2p-lan-*.tgz
+# 3. Publish (requires npm login + publish access to the @rellopn scope)
+npm publish dist/rellopn-dsh-p2p-lan-*.tgz
 ```
 
-Then colleagues run `dsh plugin --profile web add @rellopn/dsh-p2p-lan`.
+Then colleagues install by package name:
+
+```bash
+dsh plugin --profile web add @rellopn/dsh-p2p-lan
+```
+
+Or, without publishing, share the tarball and install from a local path:
+
+```bash
+dsh plugin --profile web add ./rellopn-dsh-p2p-lan-0.1.0-rc.5.tgz
+```
+
+> Note: `lib/typert.host.js`, `lib/typert.remote-client.js`, and
+> `lib/typert.remote-client.d.ts` are generated artifacts. The upstream Typert
+> generator cannot resolve `@Remote` here (`@deepseek-ai/dsh-typert-protocol` is an
+> external dependency, not a workspace package), so after adding/removing `@Remote`
+> methods, sync those three files by hand (see `scripts/gen-typert.mjs`).
 
 ## Status
 
 Fully implemented as a single dual-face package: discovery, transport, store, agent
-orchestration, LLM reply engine, the self-mounted `remote.p2p` Typert bridge, and the
-footer+overlay gate panel. Remaining: publish, then a two-machine end-to-end check.
+orchestration, LLM reply engine, the self-mounted `remote.p2p` Typert bridge, the
+footer+overlay gate panel, a full settings panel (11 config keys, hot-reloaded), per-project
+session reuse, and automatic project routing for plain messages that name a project.
+Remaining: publish, then a two-machine end-to-end check.

@@ -96,6 +96,30 @@ const _rellopn_dsh_p2p_lan_p2p_setProjects_parameter_0$schema = z.array(z.object
 const _rellopn_dsh_p2p_lan_p2p_setProjects_result$schema = z.object({
   'ok': z.boolean(),
 })
+const _rellopn_dsh_p2p_lan_p2p_config$schema = z.object({
+  'nodeName': z.string(),
+  'capabilities': z.array(z.string()),
+  'autoDiscover': z.boolean(),
+  'manualPeers': z.array(z.object({
+  'name': z.string(),
+  'host': z.string(),
+  'port': z.number(),
+})),
+  'port': z.number(),
+  'sensitivity': z.union([z.literal("lenient"), z.literal("standard"), z.literal("strict")]),
+  'sendWaitTimeoutMs': z.number(),
+  'provider': z.string(),
+  'model': z.string(),
+  'persona': z.string(),
+  'projects': z.array(z.object({
+  'name': z.string(),
+  'path': z.string(),
+  'broadcast': z.boolean(),
+})),
+})
+const _rellopn_dsh_p2p_lan_p2p_setConfig_result$schema = z.object({
+  'ok': z.boolean(),
+})
 
 export const TYPERT = {
   package: '@rellopn/dsh-p2p-lan',
@@ -153,6 +177,21 @@ export const TYPERT = {
         schema: _rellopn_dsh_p2p_lan_p2p_checkInbox_result$schema,
       },
       sourceLocation: {"file":"packages/p2p/p2p-lan/src/plugin.ts","line":185,"column":3},
+    },
+    {
+      id: '@rellopn/dsh-p2p-lan#p2p/inboxSnapshot',
+      service: 'p2p',
+      namespace: 'p2p',
+      method: 'inboxSnapshot',
+      invocation: { kind: 'direct' },
+      parameters: [
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '@rellopn/dsh-p2p-lan#p2p/inboxSnapshot:result',
+        schema: _rellopn_dsh_p2p_lan_p2p_checkInbox_result$schema,
+      },
+      sourceLocation: {"file":"packages/p2p/p2p-lan/src/plugin.ts","line":1,"column":1},
     },
     {
       id: '@rellopn/dsh-p2p-lan#p2p/gateSnapshot',
@@ -263,6 +302,46 @@ export const TYPERT = {
         schema: _rellopn_dsh_p2p_lan_p2p_setProjects_result$schema,
       },
       sourceLocation: {"file":"packages/p2p/p2p-lan/src/plugin.ts","line":212,"column":9},
+    },
+    {
+      id: '@rellopn/dsh-p2p-lan#p2p/getConfig',
+      service: 'p2p',
+      namespace: 'p2p',
+      method: 'getConfig',
+      invocation: { kind: 'direct' },
+      parameters: [
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '@rellopn/dsh-p2p-lan#p2p/getConfig:result',
+        schema: _rellopn_dsh_p2p_lan_p2p_config$schema,
+      },
+      sourceLocation: {"file":"packages/p2p/p2p-lan/src/plugin.ts","line":1,"column":1},
+    },
+    {
+      id: '@rellopn/dsh-p2p-lan#p2p/setConfig',
+      service: 'p2p',
+      namespace: 'p2p',
+      method: 'setConfig',
+      invocation: { kind: 'direct' },
+      parameters: [
+        {
+          name: 'config',
+          wire: 'config',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@rellopn/dsh-p2p-lan#p2p/setConfig:config',
+            schema: _rellopn_dsh_p2p_lan_p2p_config$schema,
+          },
+        },
+      ],
+      result: {
+        mode: 'strict',
+        typeSymbol: '@rellopn/dsh-p2p-lan#p2p/setConfig:result',
+        schema: _rellopn_dsh_p2p_lan_p2p_setConfig_result$schema,
+      },
+      sourceLocation: {"file":"packages/p2p/p2p-lan/src/plugin.ts","line":1,"column":1},
     },
   ],
   model: {

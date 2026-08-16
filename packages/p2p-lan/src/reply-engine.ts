@@ -1,7 +1,7 @@
 /** LLM-backed reply drafting + gate decision. @module @rellopn/dsh-p2p-lan */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ReplyEngine } from './agent.ts'
 import type { Sensitivity } from './config.ts'
 import type { Envelope } from './messages.ts'
@@ -11,6 +11,15 @@ export interface LlmReplyEngineOptions {
   model: string
   sensitivity: Sensitivity
   persona: string
+  /** This node's own name, injected into the draft prompt so replies can be factual. */
+  nodeName: string
+  /** This node's own project names, injected so "what projects do you have" is answered truthfully. */
+  projects: string[]
+}
+
+/** A reply engine whose LLM route + gate bias can be updated live (no restart). */
+export interface MutableReplyEngine extends ReplyEngine {
+  updateOptions(next: Partial<LlmReplyEngineOptions>): void
 }
 
 function sensitivityClause(sensitivity: Sensitivity): string {
@@ -24,11 +33,16 @@ function sensitivityClause(sensitivity: Sensitivity): string {
   }
 }
 
-function systemPrompt(persona: string, sensitivity: Sensitivity): string {
+function systemPrompt(persona: string, sensitivity: Sensitivity, nodeName: string, projects: string[]): string {
   const identity = persona.length > 0 ? `Your role: ${persona}.` : 'You are a helpful colleague.'
+  const projectFacts = projects.length > 0
+    ? `Your node is named "${nodeName}" and currently offers these projects (real, never invent others): ${projects.join(', ')}.`
+    : `Your node is named "${nodeName}" and currently offers no projects.`
   return [
     identity,
     'Draft a plain-text reply to the incoming message from another colleague on the LAN.',
+    projectFacts,
+    'Answer factually from the facts above; if the incoming message asks for information you do not have, say so instead of inventing.',
     'Decide whether the reply needs human review before it is sent.',
     sensitivityClause(sensitivity),
     'Reply with a single JSON object: {"needsGate": boolean, "body": string}.',
@@ -50,13 +64,17 @@ function parseDraft(text: string): { needsGate: boolean; body: string } {
 }
 
 /** Build the LLM-backed reply engine. Any failure degrades to the human gate. */
-export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOptions): ReplyEngine {
-  const system = systemPrompt(options.persona, options.sensitivity)
+export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOptions): MutableReplyEngine {
+  // Live-mutable options: the settings panel can change the route/gate bias
+  // without rebuilding the node; each draft reads the current snapshot.
+  let current: LlmReplyEngineOptions = { ...options }
   return {
     async draftReply(envelope) {
-      if (options.sensitivity === 'strict' || options.provider === '' || options.model === '') {
+      const { provider, model, sensitivity, persona, nodeName, projects } = current
+      if (sensitivity === 'strict' || provider === '' || model === '') {
         return { needsGate: true, body: '' }
       }
+      const system = systemPrompt(persona, sensitivity, nodeName, projects)
       try {
         const user = createUserMessage({
           content: [{ type: 'text', text: frame(envelope) }],
@@ -64,11 +82,16 @@ export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOption
         })
         const assembler = new BlockAssembler()
         for await (const chunk of ctx.llm.stream({
-          provider: options.provider,
-          model: options.model,
+          provider,
+          model,
           messages: [user],
           system,
           maxTokens: 1024,
+          // Drafting is a small JSON decision ({"needsGate", "body"}); disable
+          // thinking so a reasoning model does not spend the whole token budget
+          // on chain-of-thought and end with an empty content block (the adapter
+          // reports that as EMPTY_RESPONSE -> gate, not auto-reply).
+          reasoningEffort: ReasoningEffortId('off'),
         })) {
           assembler.push(chunk)
         }
@@ -82,6 +105,9 @@ export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOption
       } catch {
         return { needsGate: true, body: '' }
       }
+    },
+    updateOptions(next) {
+      current = { ...current, ...next }
     },
   }
 }

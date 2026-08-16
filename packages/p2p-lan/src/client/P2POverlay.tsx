@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { GateItem, PeerInfo } from '@rellopn/dsh-p2p-lan/types'
+import type { Envelope, GateItem, PeerInfo } from '@rellopn/dsh-p2p-lan/types'
 // Type-only: pulls the shell.overlay SlotMap merge (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -9,6 +9,7 @@ import { isPanelOpen, subscribePanel } from './panel-store.ts'
 export interface P2POverlayInjected {
   gateSnapshot: () => Promise<Array<GateItem & { id: string }>>
   peers: () => Promise<PeerInfo[]>
+  inboxSnapshot: () => Promise<Envelope[]>
   approveGate: (id: string, finalBody?: string) => Promise<void>
   rejectGate: (id: string) => Promise<void>
 }
@@ -29,22 +30,24 @@ const actionButton: React.CSSProperties = {
 }
 
 /** Floating collaboration panel: online peers + pending drafts with approve/edit/reject. */
-export function P2POverlay({ gateSnapshot, peers, approveGate, rejectGate }: P2POverlayProps): ReactNode {
+export function P2POverlay({ gateSnapshot, peers, inboxSnapshot, approveGate, rejectGate }: P2POverlayProps): ReactNode {
   const open = useSyncExternalStore(subscribePanel, isPanelOpen)
   const [gates, setGates] = useState<Array<GateItem & { id: string }>>([])
   const [peerList, setPeerList] = useState<PeerInfo[]>([])
+  const [inbox, setInbox] = useState<Envelope[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
 
   const refresh = (): void => {
     void gateSnapshot().then(setGates, () => setGates([]))
     void peers().then(setPeerList, () => setPeerList([]))
+    void inboxSnapshot().then(setInbox, () => setInbox([]))
   }
   useEffect(() => {
     refresh()
     const timer = setInterval(refresh, 5000)
     return () => clearInterval(timer)
-  }, [gateSnapshot, peers])
+  }, [gateSnapshot, peers, inboxSnapshot])
 
   const startEdit = (gate: GateItem & { id: string }): void => {
     setEditing(gate.id)
@@ -123,6 +126,16 @@ export function P2POverlay({ gateSnapshot, peers, approveGate, rejectGate }: P2P
           ) : (
             <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', marginTop: 4 }}>无在线同事</div>
           )}
+          {inbox.length > 0 ? (
+            <div style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', marginTop: 8, paddingTop: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 12 }}>收件箱</div>
+              {inbox.map(message => (
+                <div key={message.id} style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 }}>
+                  <span style={{ fontWeight: 600 }}>{message.from.name}</span>：{message.body}
+                </div>
+              ))}
+            </div>
+          ) : null}
           {gates.map(gate => (
             <div key={gate.id} style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 8 }}>
               <div style={{ fontWeight: 600 }}>来自 {gate.original.from.name}{gate.original.to.project ? ` · 项目 ${gate.original.to.project}` : ''}</div>

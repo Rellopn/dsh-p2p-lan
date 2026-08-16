@@ -126,3 +126,18 @@ export interface ProjectEntry {
 
 /** Human-review sensitivity for the receiver's auto-reply engine. */
 export type Sensitivity = 'lenient' | 'standard' | 'strict'
+
+/** The full editable P2P node configuration (the settings-panel shape). */
+export interface Config {
+  nodeName: string
+  capabilities: string[]
+  autoDiscover: boolean
+  manualPeers: ManualPeer[]
+  port: number
+  sensitivity: Sensitivity
+  sendWaitTimeoutMs: number
+  provider: string
+  model: string
+  persona: string
+  projects: ProjectEntry[]
+}
