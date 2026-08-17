@@ -26,8 +26,8 @@ describe('transport', () => {
   it('delivers an envelope and receives its ack', async () => {
     const a = new Transport({ port: 11001 })
     const b = new Transport({ port: 11002 })
-    a.start()
-    b.start()
+    await a.start()
+    await b.start()
     try {
       const received: Envelope[] = []
       b.on('envelope', env => received.push(env))
@@ -43,8 +43,8 @@ describe('transport', () => {
   it('dedupes repeated envelopes but still acks them', async () => {
     const a = new Transport({ port: 11003 })
     const b = new Transport({ port: 11004 })
-    a.start()
-    b.start()
+    await a.start()
+    await b.start()
     try {
       const received: Envelope[] = []
       b.on('envelope', env => received.push(env))
@@ -62,8 +62,8 @@ describe('transport', () => {
   it('is bidirectional (reply over the reverse direction)', async () => {
     const a = new Transport({ port: 11005 })
     const b = new Transport({ port: 11006 })
-    a.start()
-    b.start()
+    await a.start()
+    await b.start()
     try {
       const atA: Envelope[] = []
       const atB: Envelope[] = []
@@ -77,6 +77,53 @@ describe('transport', () => {
     } finally {
       await a.stop()
       await b.stop()
+    }
+  })
+
+  it('start() returns and exposes the port actually bound', async () => {
+    const a = new Transport({ port: 12001 })
+    const bound = await a.start()
+    expect(bound).toBe(12001)
+    expect(a.effectivePort()).toBe(12001)
+    await a.stop()
+  })
+
+  it('walks to the next free port when the requested one is busy (same machine, multi-instance case)', async () => {
+    const a = new Transport({ port: 12002 })
+    const b = new Transport({ port: 12002 })
+    await a.start()
+    await b.start()
+    try {
+      const portA = a.effectivePort()
+      const portB = b.effectivePort()
+      expect(portA).toBe(12002)
+      expect(portB).not.toBe(portA)
+      expect(portB).toBeGreaterThan(portA)
+
+      // Both directions work: A on the requested port, B on the walked one.
+      const atA: Envelope[] = []
+      const atB: Envelope[] = []
+      a.on('envelope', env => atA.push(env))
+      b.on('envelope', env => atB.push(env))
+      await b.send({ host: '127.0.0.1', port: 12002 }, envelope('to-a'))
+      await a.send({ host: '127.0.0.1', port: portB }, envelope('to-b'))
+      await waitFor(() => atA.length === 1 && atB.length === 1)
+      expect(atA[0]?.id).toBe('to-a')
+      expect(atB[0]?.id).toBe('to-b')
+    } finally {
+      await a.stop()
+      await b.stop()
+    }
+  })
+
+  it('fails with a clear error when the whole retry window is busy', async () => {
+    const blocker = new Transport({ port: 12003 })
+    await blocker.start()
+    try {
+      const blocked = new Transport({ port: 12003, portRetries: 0 })
+      await expect(blocked.start()).rejects.toThrow(/no free port/)
+    } finally {
+      await blocker.stop()
     }
   })
 })

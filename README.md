@@ -34,13 +34,13 @@ dsh plugin --profile web add ./rellopn-dsh-p2p-lan-0.1.0-rc.6.tgz
 
 ## Quick start
 
-The bundle's `cordis.patch.yml` mounts both halves. Edit per machine — `nodeName` must be unique on the LAN:
+The bundle's `cordis.patch.yml` mounts both halves. `nodeName` and `port` are optional — when left empty/unset the plugin generates a host-scoped random name (e.g. `desktop-8f2a`) and, if the requested port is busy (several dsh on one machine), automatically walks to the next free port:
 
 ```yaml
 - id: p2p-lan
   name: '@rellopn/dsh-p2p-lan'
   config:
-    nodeName: 'backend-a'           # unique per machine on the LAN
+    nodeName: 'backend-a'           # optional; default = hostname + 4 random chars (LAN-unique per machine)
     capabilities: ['rpc', 'export'] # optional: what this node can answer
     provider: deepseek-official     # LLM route for auto-replies; empty = gate everything
     model: deepseek-v4-flash        # model id
@@ -53,11 +53,11 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 
 | Key | Default | Meaning |
 |---|---|---|
-| `nodeName` | `'unnamed'` | This node's LAN-unique name (duplicates are rejected) |
+| `nodeName` | `''` (auto) | LAN-unique node name; empty generates `hostname-<4 random>` once and persists it (duplicates are rejected) |
 | `capabilities` | `[]` | Capability tags for `send_to_capability` routing |
 | `autoDiscover` | `true` | UDP multicast discovery |
 | `manualPeers` | `[]` | `[{ name, host, port }]` fallback when multicast is blocked |
-| `port` | `53420` | WebSocket listen port |
+| `port` | `53420` | Requested WebSocket listen port; when busy the plugin binds the next free port (`port`→`port+199`) and advertises the real one. The settings panel shows the actual port in use |
 | `sensitivity` | `'standard'` | Gate bias: `lenient` / `standard` / `strict` |
 | `sendWaitTimeoutMs` | `300000` | Synchronous reply timeout (ms) |
 | `provider` | `''` | LLM provider for reply drafting (empty degrades to gate-everything) |

@@ -61,7 +61,7 @@ export class Discovery extends EventEmitter {
   private readonly identity: NodeIdentity
   private capabilities: string[]
   private readonly host: string
-  private readonly port: number
+  private port: number
   private readonly autoDiscover: boolean
   private readonly manualPeers: ManualPeer[]
   private projects: string[]
@@ -133,6 +133,15 @@ export class Discovery extends EventEmitter {
   /** Replace the announced project names (used by live settings edits). */
   setProjects(names: string[]): void {
     this.projects = names
+  }
+
+  /**
+   * Point the advertise payload at the port the transport actually bound
+   * (auto-selected when the requested port was busy). Must be called before
+   * {@link start} so peers immediately learn the real address.
+   */
+  setAdvertisedPort(port: number): void {
+    this.port = port
   }
 
   /** Replace the announced capability tags (used by live settings edits). */

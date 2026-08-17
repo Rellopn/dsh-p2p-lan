@@ -15,8 +15,8 @@ import type { Envelope } from './messages.ts'
 import { createLlmReplyEngine, type MutableReplyEngine } from './reply-engine.ts'
 import { Store } from './store.ts'
 import { Transport } from './transport.ts'
-import { mergeWorkspaces, normalizeProjects, validProjects, type ProjectEntry } from './config.ts'
-import type { Config as ConfigModel } from './types.ts'
+import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
+import type { Config as ConfigModel, NodeStatus } from './types.ts'
 
 // The wire type lives in ./types.ts (exported via the `./types` subpath for the
 // client/Remote face); re-export it here so this module can use the `Config`
@@ -34,7 +34,7 @@ export const inject = ['tools', 'llm']
 
 /** Plugin configuration schema (defaults apply at mount time). The `Config` type lives in ./types.ts. */
 export const Config: z<ConfigModel> = z.object({
-  nodeName: z.string().default('unnamed'),
+  nodeName: z.string().default(''),
   capabilities: z.array(z.string()).default([]),
   autoDiscover: z.boolean().default(true),
   manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })).default([]),
@@ -91,6 +91,8 @@ export class P2PService extends TypertRemoteService {
   private config: Config
   /** Whether transport + discovery are currently running. */
   private started = false
+  /** LAN-advertised host of the current node (filled by buildNode). */
+  private lanHost = '127.0.0.1'
 
   /** Authoritative project-table source (settings-resolved, incl. in-progress rows). */
   private projectsSource: () => ProjectEntry[] = () => []
@@ -112,7 +114,7 @@ export class P2PService extends TypertRemoteService {
     this.buildNode(this.config)
 
     this.ctx.effect(() => {
-      this.startNode()
+      void this.startNode()
       return () => {
         this.stopNode()
       }
@@ -135,12 +137,12 @@ export class P2PService extends TypertRemoteService {
     const projects = normalizeProjects(config.projects)
     const broadcastProjects = projects.filter(entry => entry.broadcast).map(entry => entry.name)
     this.identity = createIdentity(config.nodeName)
-    const host = detectLanAddress() ?? '127.0.0.1'
+    this.lanHost = detectLanAddress() ?? '127.0.0.1'
     this.transport = new Transport({ port: config.port })
     this.discovery = new Discovery({
       identity: this.identity,
       capabilities: config.capabilities,
-      host,
+      host: this.lanHost,
       port: config.port,
       autoDiscover: config.autoDiscover,
       manualPeers: config.manualPeers,
@@ -164,15 +166,28 @@ export class P2PService extends TypertRemoteService {
     this.transport.on('envelope', (envelope: Envelope) => {
       void this.agent.handleInbound(envelope)
     })
+    // Don't let a post-bind server error become an unhandled 'error' event.
+    this.transport.on('error', (error) => {
+      this.ctx.logger.warn('p2p-lan: transport error')
+      this.ctx.logger.warn(error)
+    })
     this.discovery.on('peer-online', () => {
       void this.store.flush()
     })
   }
 
-  private startNode(): void {
-    this.transport.start()
-    this.discovery.start()
-    this.started = true
+  /** Bind the WebSocket server, then point discovery at the port actually used. */
+  private async startNode(): Promise<void> {
+    try {
+      const actualPort = await this.transport.start()
+      this.discovery.setAdvertisedPort(actualPort)
+      this.discovery.start()
+      this.started = true
+    } catch (error) {
+      this.started = false
+      this.ctx.logger.warn('p2p-lan: failed to start transport/discovery')
+      this.ctx.logger.warn(error)
+    }
   }
 
   private stopNode(): void {
@@ -182,11 +197,10 @@ export class P2PService extends TypertRemoteService {
   }
 
   /** Rebuild the node core in place (heavy config changes): stop, rebuild, restart. */
-  private rebuildNode(config: Config): void {
-    const wasStarted = this.started
-    if (wasStarted) this.stopNode()
+  private async rebuildNode(config: Config): Promise<void> {
+    this.stopNode()
     this.buildNode(config)
-    if (wasStarted) this.startNode()
+    await this.startNode()
   }
 
   /**
@@ -202,7 +216,7 @@ export class P2PService extends TypertRemoteService {
       || next.port !== prev.port
       || next.autoDiscover !== prev.autoDiscover
     if (heavyChanged) {
-      this.rebuildNode(next)
+      void this.rebuildNode(next)
       return
     }
 
@@ -399,6 +413,16 @@ export class P2PService extends TypertRemoteService {
     return { ok: true }
   }
 
+  @Remote('nodeStatus')
+  nodeStatus(): NodeStatus {
+    return {
+      host: this.lanHost,
+      requestedPort: this.config.port,
+      effectivePort: this.transport.effectivePort() ?? this.config.port,
+      started: this.started,
+    }
+  }
+
   async send(target: SendTarget, body: string): Promise<'delivered' | 'queued' | 'offline'> {
     return this.agent.send(target, body)
   }
@@ -432,7 +456,12 @@ export class P2PService extends TypertRemoteService {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const p2p = new P2PService(ctx, config)
+  // An empty / legacy ('unnamed') nodeName yields a host-scoped random name
+  // (`hostname-abcd`) so several dsh instances on one machine never collide by
+  // default. The resolved name is persisted into settings on the first run so
+  // the identity survives restarts.
+  const initialName = resolveNodeName(config.nodeName)
+  const p2p = new P2PService(ctx, { ...config, nodeName: initialName })
 
   // Live settings: the static `config` is the base; a settings namespace layers
   // the full editable config on top (node name, capability tags, discovery,
@@ -441,13 +470,22 @@ export function apply(ctx: Context, config: Config): void {
   // so the browser reads/writes this one through the P2P remote (getConfig /
   // setConfig / getProjects / setProjects) instead of settingsScope; the
   // namespace stays the durable store of record Host-side.
-  const fallback = (): Config => ({ ...config })
+  const fallback = (): Config => ({ ...config, nodeName: initialName })
   let configScope: SettingsScope<Config> | undefined
   const source = (): Config => (configScope === undefined ? fallback() : configScope.get())
   ctx.inject(['settings'], (sctx) => {
     configScope = sctx.settings.register(settingsNamespace('p2p'), SettingsSchema, {
       base: { ...config },
     })
+    const resolved = source()
+    const name = resolveNodeName(resolved.nodeName)
+    if (name !== resolved.nodeName) {
+      // First run with an unset/legacy name: generate once and persist it, so
+      // later restarts reuse the same identity.
+      void configScope.replace({ ...resolved, nodeName: name }).then(() => {
+        p2p.applyConfig(source())
+      })
+    }
     p2p.applyConfig(source())
     configScope.watch(() => {
       p2p.applyConfig(source())

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { Config, ManualPeer, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
+import type { Config, ManualPeer, NodeStatus, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
 
 /** Registration-side data the settings section needs. */
 export interface P2PSettingsInjected {
@@ -9,6 +9,7 @@ export interface P2PSettingsInjected {
   getProjects: () => Promise<ProjectEntry[]>
   setProjects: (projects: ProjectEntry[]) => Promise<void>
   importWorkspaces: () => Promise<{ ok: boolean; added: number }>
+  getNodeStatus: () => Promise<NodeStatus>
 }
 
 /** Full component props assembled by the settings shell renderer. */
@@ -32,8 +33,9 @@ function splitTags(value: string): string[] {
 
 /** Settings section: full node config (identity, discovery, reply engine) + project table. */
 export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
-  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces } = props
+  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus } = props
   const [config, setConfigState] = useState<Config | null>(null)
+  const [status, setStatus] = useState<NodeStatus | null>(null)
   const [projects, setProjectsState] = useState<ProjectEntry[]>([])
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -42,16 +44,17 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
 
   useEffect(() => {
     let alive = true
-    Promise.all([getConfig(), getProjects()]).then(([cfg, list]) => {
+    Promise.all([getConfig(), getProjects(), getNodeStatus()]).then(([cfg, list, runtime]) => {
       if (!alive) return
       setConfigState(cfg)
       setProjectsState(list)
+      setStatus(runtime)
       setLoaded(true)
     }, () => {
       if (alive) setLoaded(true)
     })
     return () => { alive = false }
-  }, [getConfig, getProjects])
+  }, [getConfig, getProjects, getNodeStatus])
 
   const patch = (next: Partial<Config>): void => {
     if (config === null) return
@@ -62,6 +65,8 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
     setSaved('保存中…')
     void setConfig(config).then(() => {
       setSaved('已保存')
+      // The node may have re-bound on a different port; refresh the runtime status.
+      getNodeStatus().then(setStatus, () => {})
       setTimeout(() => setSaved(null), 2000)
     }, () => {
       setSaved('保存失败')
@@ -186,6 +191,14 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         style={{ ...input, marginTop: 4 }}
         onChange={(event) => { patch({ port: Number(event.currentTarget.value) || 53420 }) }}
       />
+      {status !== null && status.effectivePort !== config.port ? (
+        <div style={{ ...hint, color: 'var(--dsw-alias-state-warning-primary, #e6a23c)' }}>
+          请求的 {config.port} 被占用，当前实际监听 <strong>{status.effectivePort}</strong>（将广播给局域网同事）。
+        </div>
+      ) : null}
+      {status !== null && status.effectivePort === config.port ? (
+        <div style={hint}>当前实际监听 {status.effectivePort}；端口被占用时插件会自动顺延到下一个空闲端口。</div>
+      ) : null}
       <div style={hint}>改端口会重启 WebSocket server（进程不重启）。</div>
 
       <div style={label}>自动回复把关灵敏度</div>

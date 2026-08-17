@@ -11,8 +11,8 @@
     - id: p2p-lan
       name: '@rellopn/dsh-p2p-lan'
       config:
-        nodeName: 'unnamed'   # ← 这台机器全网唯一的名字（重名会报错+拒收）
-        capabilities: []      # ← 可选：这台 AI 能回答什么，如 ['rpc','export']
+        nodeName: ''              # ← 留空=自动生成「主机名+4位随机」并持久化；想自定义就写死一个全网唯一的名字
+        capabilities: []          # ← 可选：这台 AI 能回答什么，如 ['rpc','export']
         provider: ''          # ← 自动回复/把关判断用的 LLM 路由；留空=全部转人工
         model: ''             # ← 对应模型 id
         persona: ''           # ← 可选：回复草稿的角色提示

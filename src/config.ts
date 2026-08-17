@@ -1,6 +1,8 @@
 /** Node configuration schema and defaults. @module @rellopn/dsh-p2p-lan */
 
 import { basename, isAbsolute } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { hostname } from 'node:os'
 import type { ManualPeer, ProjectEntry, Sensitivity } from './types.ts'
 
 // Wire types live in ./types.ts (type-only); re-exported for host/test import sites.
@@ -31,10 +33,55 @@ export interface Config {
 export const DEFAULT_SEND_WAIT_TIMEOUT_MS = 5 * 60 * 1000
 /** Default WebSocket listen port. */
 export const DEFAULT_PORT = 53420
+/** How many consecutive busy ports the transport will try beyond the requested one. */
+export const DEFAULT_PORT_RETRIES = 200
+/** Length of the random suffix appended to an auto-generated node name. */
+export const AUTO_NAME_SUFFIX_LENGTH = 4
+/** Legacy sentinel produced by old schema defaults; treated as "unset". */
+const LEGACY_UNSET_NAME = 'unnamed'
+/** Random-suffix alphabet (lowercase letters + digits; visually unambiguous). */
+const NAME_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
+
+/**
+ * Random alphanumeric suffix (no 0/O/1/I/l) of the requested length.
+ * 32 entries ^ length: 4 chars already gives a million combinations.
+ */
+export function randomNodeSuffix(length: number = AUTO_NAME_SUFFIX_LENGTH): string {
+  const bytes = randomBytes(length)
+  let out = ''
+  for (let index = 0; index < length; index += 1) {
+    const byte = bytes[index]
+    if (byte === undefined) break
+    out += NAME_ALPHABET[byte % NAME_ALPHABET.length] ?? 'a'
+  }
+  return out
+}
+
+/**
+ * Fold a machine hostname into a node-name-safe fragment: lowercase, keep
+ * letters/digits, collapse separators, cap the length, fall back to `node`.
+ */
+export function sanitizeHostname(value: string): string {
+  const folded = value.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 16)
+  return folded === '' ? 'node' : folded
+}
+
+/**
+ * Resolve the effective node name: an explicit non-legacy name passes through
+ * unchanged; an empty / legacy `'unnamed'` value yields a host-scoped random
+ * name (`hostname-abcd`) so same-machine instances never collide by default.
+ */
+export function resolveNodeName(name: string | undefined): string {
+  if (typeof name === 'string' && name.trim() !== '' && name !== LEGACY_UNSET_NAME) return name
+  return `${sanitizeHostname(hostname())}-${randomNodeSuffix()}`
+}
 
 /** Default configuration. */
 export const defaultConfig: Config = {
-  nodeName: 'unnamed',
+  nodeName: '',
   capabilities: [],
   autoDiscover: true,
   manualPeers: [],

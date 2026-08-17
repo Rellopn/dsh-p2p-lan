@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { resolve } from 'node:path'
-import { DEFAULT_PORT, defaultConfig, deriveProjectName, mergeWorkspaces, normalizeProjects, resolveConfig, slugify, validProjects } from '../src/config.ts'
+import {
+  DEFAULT_PORT, defaultConfig, deriveProjectName, mergeWorkspaces, normalizeProjects,
+  randomNodeSuffix, resolveConfig, resolveNodeName, sanitizeHostname, slugify, validProjects,
+} from '../src/config.ts'
 
 describe('config', () => {
   it('resolves defaults', () => {
@@ -8,6 +11,8 @@ describe('config', () => {
     expect(config.sensitivity).toBe('standard')
     expect(config.autoDiscover).toBe(true)
     expect(config.port).toBe(DEFAULT_PORT)
+    // An empty name means "auto-generate at mount time" (hostname + random).
+    expect(config.nodeName).toBe('')
   })
 
   it('merges partial config over defaults', () => {
@@ -163,5 +168,40 @@ describe('mergeWorkspaces', () => {
     const current = [{ name: 'api', path: '/a', broadcast: true }]
     const merged = mergeWorkspaces(current, [])
     expect(merged).toEqual(current)
+  })
+})
+
+describe('sanitizeHostname', () => {
+  it('folds a hostname into a name-safe fragment', () => {
+    expect(sanitizeHostname('My-PC!')).toBe('my-pc')
+    expect(sanitizeHostname('DESKTOP-ABC12')).toBe('desktop-abc12')
+    expect(sanitizeHostname('---')).toBe('node')
+    expect(sanitizeHostname('')).toBe('node')
+  })
+})
+
+describe('randomNodeSuffix', () => {
+  it('produces suffixes of the requested length from the unambiguous alphabet', () => {
+    expect(randomNodeSuffix(4)).toHaveLength(4)
+    expect(randomNodeSuffix(6)).toHaveLength(6)
+    expect(randomNodeSuffix(4)).toMatch(/^[a-hjkmnp-z2-9]{4}$/)
+  })
+})
+
+describe('resolveNodeName', () => {
+  it('passes an explicit name through unchanged', () => {
+    expect(resolveNodeName('node-a')).toBe('node-a')
+    expect(resolveNodeName('某机器')).toBe('某机器')
+  })
+
+  it('generates a hostname-scoped random name for empty or legacy defaults', () => {
+    const a = resolveNodeName('')
+    const b = resolveNodeName('')
+    // hostname fragment + '-abcd' suffix.
+    expect(a).toMatch(/^[a-z0-9][a-z0-9-]{0,15}-[a-hjkmnp-z2-9]{4}$/)
+    expect(b).toMatch(/^[a-z0-9][a-z0-9-]{0,15}-[a-hjkmnp-z2-9]{4}$/)
+    expect(a).not.toBe(b)
+    expect(resolveNodeName('unnamed')).toMatch(/-[a-hjkmnp-z2-9]{4}$/)
+    expect(resolveNodeName('unnamed')).not.toBe('unnamed')
   })
 })

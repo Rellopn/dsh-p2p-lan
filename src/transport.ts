@@ -1,7 +1,9 @@
 /** WebSocket transport: server + client, transport ack, id dedupe, retry with backoff. @module @rellopn/dsh-p2p-lan */
 
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
+import { DEFAULT_PORT_RETRIES } from './config.ts'
 import { validateEnvelope, type Envelope } from './messages.ts'
 
 /** A remote transport address. */
@@ -14,12 +16,15 @@ export interface PeerAddress {
 export type WireMessage = { type: 'envelope'; envelope: Envelope } | { type: 'ack'; id: string }
 
 export interface TransportOptions {
+  /** Requested listen port; the transport may bind a higher free port when busy. */
   port: number
   host?: string
   connectTimeoutMs?: number
   ackTimeoutMs?: number
   maxRetries?: number
   retryBaseDelayMs?: number
+  /** How many consecutive busy ports to try beyond the requested one before failing. */
+  portRetries?: number
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 5000
@@ -36,40 +41,98 @@ interface PendingAck {
 
 /** Bidirectional envelope transport over WebSocket. Emits `envelope` for deduped inbound envelopes. */
 export class Transport extends EventEmitter {
-  private readonly port: number
+  private readonly requestedPort: number
   private readonly host: string
   private readonly connectTimeoutMs: number
   private readonly ackTimeoutMs: number
   private readonly maxRetries: number
   private readonly retryBaseDelayMs: number
+  private readonly portRetries: number
 
   private server: WebSocketServer | undefined
+  /** The port actually bound by the last successful start(). */
+  private boundPort: number | undefined
+  /** Set by stop(); a bind that resolves afterwards must not leave a server behind. */
+  private closing = false
   private readonly seen = new Set<string>()
   private readonly clients = new Map<string, WebSocket>()
   private readonly pending = new Map<string, PendingAck>()
 
   constructor(options: TransportOptions) {
     super()
-    this.port = options.port
+    this.requestedPort = options.port
     this.host = options.host ?? '0.0.0.0'
     this.connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
     this.ackTimeoutMs = options.ackTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
+    this.portRetries = options.portRetries ?? DEFAULT_PORT_RETRIES
   }
 
-  /** Start the WebSocket server. */
-  start(): void {
-    const server = new WebSocketServer({ host: this.host, port: this.port })
-    server.on('connection', (socket) => {
-      socket.on('message', data => this.handleMessage(socket, data))
-    })
-    server.on('error', err => this.emit('error', err))
-    this.server = server
+  /** The port actually bound after start(); undefined before start / after stop. */
+  effectivePort(): number | undefined {
+    return this.boundPort
+  }
+
+  /**
+   * Start the WebSocket server, returning the port actually bound. Tries the
+   * requested port first; when it is taken (EADDRINUSE, e.g. a second dsh on
+   * the same machine) it walks upward through the next free ports, so several
+   * instances can coexist without manual configuration.
+   */
+  async start(): Promise<number> {
+    if (this.server !== undefined) return this.boundPort ?? this.requestedPort
+    this.closing = false
+    let lastError: unknown = undefined
+    for (let attempt = 0; attempt <= this.portRetries; attempt += 1) {
+      const candidate = this.requestedPort + attempt
+      const server = createServer()
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (err: Error): void => {
+            server.removeListener('listening', onListening)
+            reject(err)
+          }
+          const onListening = (): void => {
+            server.removeListener('error', onError)
+            resolve()
+          }
+          server.once('error', onError)
+          server.once('listening', onListening)
+          server.listen(candidate, this.host)
+        })
+        if (this.closing) {
+          server.close()
+          this.boundPort = undefined
+          throw new Error('p2p-lan: transport stopped during start')
+        }
+        this.boundPort = candidate
+        server.on('error', err => this.emit('error', err))
+        const wss = new WebSocketServer({ server })
+        wss.on('error', err => this.emit('error', err))
+        wss.on('connection', (socket) => {
+          socket.on('message', data => this.handleMessage(socket, data))
+        })
+        this.server = wss
+        return candidate
+      } catch (err) {
+        lastError = err
+        const code = (err as { code?: string }).code
+        if (code !== 'EADDRINUSE' && code !== 'EACCES') {
+          // A non-port-conflict failure (bad host, privileges, …): surface it
+          // instead of silently walking the port range.
+          throw new Error(`p2p-lan: failed to bind WebSocket server on ${candidate}: ${(err as Error).message}`)
+        }
+      }
+    }
+    const detail = lastError instanceof Error ? lastError.message : String(lastError)
+    throw new Error(`p2p-lan: no free port in ${this.requestedPort}..${this.requestedPort + this.portRetries} (last error: ${detail})`)
   }
 
   /** Close every connection and the server. */
   async stop(): Promise<void> {
+    this.closing = true
+    this.boundPort = undefined
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer)
       pending.reject(new Error('transport stopped'))

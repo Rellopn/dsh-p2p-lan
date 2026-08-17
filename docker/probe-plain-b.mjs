@@ -18,7 +18,8 @@ const store = new Store(transport)
 const replyEngine = { async draftReply() { return { needsGate: true, body: '' } } }
 const agent = new Agent(identity, store, discovery, replyEngine, { sendWaitTimeoutMs: 60_000 })
 
-transport.start()
+const actualPort = await transport.start()
+discovery.setAdvertisedPort(actualPort)
 discovery.start()
 transport.on('envelope', (envelope) => { void agent.handleInbound(envelope) })
 

@@ -141,3 +141,15 @@ export interface Config {
   persona: string
   projects: ProjectEntry[]
 }
+
+/** Runtime listener status (as opposed to the requested config). */
+export interface NodeStatus {
+  /** LAN-advertised host this node announces. */
+  host: string
+  /** The port requested in config (what the user asked for). */
+  requestedPort: number
+  /** The port actually bound; equals requestedPort unless it was busy and the transport walked upward. */
+  effectivePort: number
+  /** Whether transport + discovery are currently running. */
+  started: boolean
+}
