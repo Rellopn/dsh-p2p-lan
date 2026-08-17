@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createServer } from 'node:http'
 import type { Envelope } from '../src/messages.ts'
 import { Transport } from '../src/transport.ts'
 
@@ -124,6 +125,28 @@ describe('transport', () => {
       await expect(blocked.start()).rejects.toThrow(/no free port/)
     } finally {
       await blocker.stop()
+    }
+  })
+
+  it('waits out a briefly-occupied requested port instead of walking away (own releasing server)', async () => {
+    // A previous (own) server is still releasing the port: it goes away during
+    // the grace period, so the next start must reclaim the requested port
+    // rather than drift to the next free one.
+    const blocker = createServer()
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject)
+      blocker.listen(12020, '127.0.0.1', resolve)
+    })
+    const release = setTimeout(() => blocker.close(), 100)
+    try {
+      const a = new Transport({ port: 12020, portRetryDelayMs: 300 })
+      const bound = await a.start()
+      expect(bound).toBe(12020)
+      expect(a.effectivePort()).toBe(12020)
+    } finally {
+      clearTimeout(release)
+      await sleep(50)
+      await new Promise<void>(resolve => blocker.close(() => resolve()))
     }
   })
 })

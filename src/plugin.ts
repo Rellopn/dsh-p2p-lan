@@ -198,7 +198,12 @@ export class P2PService extends TypertRemoteService {
 
   /** Rebuild the node core in place (heavy config changes): stop, rebuild, restart. */
   private async rebuildNode(config: Config): Promise<void> {
-    this.stopNode()
+    // Serialize: the old server must actually release its port before the new
+    // one binds, otherwise a hot reload would see its own closing server as an
+    // external occupant and drift to the next free port on every edit.
+    await this.transport.stop()
+    this.discovery.stop()
+    this.started = false
     this.buildNode(config)
     await this.startNode()
   }

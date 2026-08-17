@@ -25,12 +25,16 @@ export interface TransportOptions {
   retryBaseDelayMs?: number
   /** How many consecutive busy ports to try beyond the requested one before failing. */
   portRetries?: number
+  /** Grace period to wait before giving up on the requested port (lets a just-closed previous server release it). */
+  portRetryDelayMs?: number
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 5000
 export const DEFAULT_ACK_TIMEOUT_MS = 5000
 export const DEFAULT_MAX_RETRIES = 5
 export const DEFAULT_RETRY_BASE_DELAY_MS = 250
+/** How long a briefly-occupied requested port is worth waiting for (hot-reload reuse). */
+export const DEFAULT_PORT_RETRY_DELAY_MS = 300
 
 interface PendingAck {
   resolve: () => void
@@ -48,6 +52,7 @@ export class Transport extends EventEmitter {
   private readonly maxRetries: number
   private readonly retryBaseDelayMs: number
   private readonly portRetries: number
+  private readonly portRetryDelayMs: number
 
   private server: WebSocketServer | undefined
   /** The port actually bound by the last successful start(). */
@@ -67,6 +72,7 @@ export class Transport extends EventEmitter {
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS
     this.portRetries = options.portRetries ?? DEFAULT_PORT_RETRIES
+    this.portRetryDelayMs = options.portRetryDelayMs ?? DEFAULT_PORT_RETRY_DELAY_MS
   }
 
   /** The port actually bound after start(); undefined before start / after stop. */
@@ -76,9 +82,12 @@ export class Transport extends EventEmitter {
 
   /**
    * Start the WebSocket server, returning the port actually bound. Tries the
-   * requested port first; when it is taken (EADDRINUSE, e.g. a second dsh on
-   * the same machine) it walks upward through the next free ports, so several
-   * instances can coexist without manual configuration.
+   * requested port first; when it is taken (EADDRINUSE, e.g. another dsh on the
+   * same machine) it walks upward through the next free ports, so several
+   * instances can coexist without manual configuration. The requested port gets
+   * one grace-period retry before that walk: a hot-reloaded node's previous
+   * server may still be releasing the port, and giving it a moment keeps the
+   * effective port stable instead of drifting by one on every reload.
    */
   async start(): Promise<number> {
     if (this.server !== undefined) return this.boundPort ?? this.requestedPort
@@ -86,47 +95,67 @@ export class Transport extends EventEmitter {
     let lastError: unknown = undefined
     for (let attempt = 0; attempt <= this.portRetries; attempt += 1) {
       const candidate = this.requestedPort + attempt
-      const server = createServer()
       try {
-        await new Promise<void>((resolve, reject) => {
-          const onError = (err: Error): void => {
-            server.removeListener('listening', onListening)
-            reject(err)
-          }
-          const onListening = (): void => {
-            server.removeListener('error', onError)
-            resolve()
-          }
-          server.once('error', onError)
-          server.once('listening', onListening)
-          server.listen(candidate, this.host)
-        })
-        if (this.closing) {
-          server.close()
-          this.boundPort = undefined
-          throw new Error('p2p-lan: transport stopped during start')
-        }
-        this.boundPort = candidate
-        server.on('error', err => this.emit('error', err))
-        const wss = new WebSocketServer({ server })
-        wss.on('error', err => this.emit('error', err))
-        wss.on('connection', (socket) => {
-          socket.on('message', data => this.handleMessage(socket, data))
-        })
-        this.server = wss
-        return candidate
+        return await this.bindOnce(candidate)
       } catch (err) {
-        lastError = err
         const code = (err as { code?: string }).code
         if (code !== 'EADDRINUSE' && code !== 'EACCES') {
           // A non-port-conflict failure (bad host, privileges, …): surface it
           // instead of silently walking the port range.
           throw new Error(`p2p-lan: failed to bind WebSocket server on ${candidate}: ${(err as Error).message}`)
         }
+        lastError = err
+        // Only the requested port is worth a grace wait: it is the one our own
+        // just-stopped server is likely still releasing. Walked candidates were
+        // freshly explored and are treated as genuinely occupied.
+        if (attempt === 0 && this.portRetryDelayMs > 0) {
+          await sleep(this.portRetryDelayMs)
+          try {
+            return await this.bindOnce(candidate)
+          } catch (retryErr) {
+            const retryCode = (retryErr as { code?: string }).code
+            if (retryCode !== 'EADDRINUSE' && retryCode !== 'EACCES') {
+              throw new Error(`p2p-lan: failed to bind WebSocket server on ${candidate}: ${(retryErr as Error).message}`)
+            }
+            lastError = retryErr
+          }
+        }
       }
     }
     const detail = lastError instanceof Error ? lastError.message : String(lastError)
     throw new Error(`p2p-lan: no free port in ${this.requestedPort}..${this.requestedPort + this.portRetries} (last error: ${detail})`)
+  }
+
+  /** Bind one candidate port and attach the WebSocket server to it. */
+  private async bindOnce(candidate: number): Promise<number> {
+    const server = createServer()
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: Error): void => {
+        server.removeListener('listening', onListening)
+        reject(err)
+      }
+      const onListening = (): void => {
+        server.removeListener('error', onError)
+        resolve()
+      }
+      server.once('error', onError)
+      server.once('listening', onListening)
+      server.listen(candidate, this.host)
+    })
+    if (this.closing) {
+      server.close()
+      this.boundPort = undefined
+      throw new Error('p2p-lan: transport stopped during start')
+    }
+    this.boundPort = candidate
+    server.on('error', err => this.emit('error', err))
+    const wss = new WebSocketServer({ server })
+    wss.on('error', err => this.emit('error', err))
+    wss.on('connection', (socket) => {
+      socket.on('message', data => this.handleMessage(socket, data))
+    })
+    this.server = wss
+    return candidate
   }
 
   /** Close every connection and the server. */

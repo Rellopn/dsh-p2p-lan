@@ -57,7 +57,7 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | `capabilities` | `[]` | Capability tags for `send_to_capability` routing |
 | `autoDiscover` | `true` | UDP multicast discovery |
 | `manualPeers` | `[]` | `[{ name, host, port }]` fallback when multicast is blocked |
-| `port` | `53420` | Requested WebSocket listen port; when busy the plugin binds the next free port (`port`→`port+199`) and advertises the real one. The settings panel shows the actual port in use |
+| `port` | `53420` | Requested WebSocket listen port; when busy the plugin binds the next free port (`port`→`port+199`) and advertises the real one. A hot-reload's own closing server is waited out first, so the port does not drift. The settings panel shows the actual port in use |
 | `sensitivity` | `'standard'` | Gate bias: `lenient` / `standard` / `strict` |
 | `sendWaitTimeoutMs` | `300000` | Synchronous reply timeout (ms) |
 | `provider` | `''` | LLM provider for reply drafting (empty degrades to gate-everything) |

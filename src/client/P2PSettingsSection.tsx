@@ -197,7 +197,7 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         </div>
       ) : null}
       {status !== null && status.effectivePort === config.port ? (
-        <div style={hint}>当前实际监听 {status.effectivePort}；端口被占用时插件会自动顺延到下一个空闲端口。</div>
+        <div style={hint}>当前实际监听 {status.effectivePort}；端口被占用时插件会自动顺延到下一个空闲端口（自己刚释放的端口会被等待回收，不会漂移）。</div>
       ) : null}
       <div style={hint}>改端口会重启 WebSocket server（进程不重启）。</div>
 
