@@ -1,0 +1,8 @@
+# Shell scripts must stay LF even on Windows checkouts (they run inside Linux
+# containers where CRLF line endings break `set -euo pipefail` and shebangs).
+*.sh text eol=lf
+*.mjs text eol=lf
+*.ts text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitattributes text eol=lf

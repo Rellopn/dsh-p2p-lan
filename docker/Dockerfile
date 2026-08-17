@@ -34,7 +34,7 @@ RUN set -eux; \
 WORKDIR /opt/p2p
 
 # The packed plugin and the profile-setup script (run at build time).
-COPY dist/rellopn-dsh-p2p-lan-0.1.0-rc.5.tgz /opt/p2p/plugin.tgz
+COPY dist/rellopn-dsh-p2p-lan-0.1.0-rc.6.tgz /opt/p2p/plugin.tgz
 COPY docker/setup-profiles.sh /opt/p2p/setup-profiles.sh
 RUN bash /opt/p2p/setup-profiles.sh
 

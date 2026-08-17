@@ -88,10 +88,10 @@ needed. To publish under the `@rellopn` scope:
 pnpm run build
 
 # 2. Pack (produces the tarball dsh plugin add / npm publish consume)
-pnpm --dir packages/p2p-lan pack --pack-destination dist
+pnpm pack
 
 # 3. Publish (requires npm login + publish access to the @rellopn scope)
-npm publish dist/rellopn-dsh-p2p-lan-*.tgz
+npm publish
 ```
 
 Then colleagues install by package name:
@@ -103,7 +103,7 @@ dsh plugin --profile web add @rellopn/dsh-p2p-lan
 Or, without publishing, share the tarball and install from a local path:
 
 ```bash
-dsh plugin --profile web add ./rellopn-dsh-p2p-lan-0.1.0-rc.5.tgz
+dsh plugin --profile web add ./rellopn-dsh-p2p-lan-0.1.0-rc.6.tgz
 ```
 
 > Note: `lib/typert.host.js`, `lib/typert.remote-client.js`, and
@@ -118,4 +118,7 @@ Fully implemented as a single dual-face package: discovery, transport, store, ag
 orchestration, LLM reply engine, the self-mounted `remote.p2p` Typert bridge, the
 footer+overlay gate panel, a full settings panel (11 config keys, hot-reloaded), per-project
 session reuse, and automatic project routing for plain messages that name a project.
-Remaining: publish, then a two-machine end-to-end check.
+
+Published as `@rellopn/dsh-p2p-lan@0.1.0-rc.6` and verified with a two-machine (two-container
+LAN) end-to-end run: sender node A called `p2p_send_and_wait` and received the LLM-drafted
+reply from receiver node B.
