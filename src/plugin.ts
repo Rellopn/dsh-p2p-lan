@@ -357,8 +357,8 @@ export class P2PService extends TypertRemoteService {
 
   @Remote('approveGate')
   async approveGate(id: string, finalBody?: string): Promise<{ ok: boolean }> {
-    await this.agent.approveGate(id, finalBody)
-    return { ok: true }
+    const ok = await this.agent.approveGate(id, finalBody)
+    return { ok }
   }
 
   @Remote('rejectGate')

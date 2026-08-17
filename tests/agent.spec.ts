@@ -147,6 +147,65 @@ describe('agent inbound routing', () => {
     expect(agent.gateSnapshot()).toHaveLength(0)
     expect(rec.sent.find(s => s.envelope.kind === 'reply')).toBeUndefined()
   })
+
+  it('gates an empty auto-reply draft instead of sending an empty message', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13000)]), autoEngine(''))
+    const gateEvents: string[] = []
+    agent.on('gate-required', (e: { id: string }) => gateEvents.push(e.id))
+
+    const request: Envelope = {
+      id: 'req-empty', kind: 'request', from: { id: 'b', name: 'node-B' }, to: { id: 'a', name: 'node-A' }, body: 'q', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+
+    expect(gateEvents).toEqual(['req-empty'])
+    expect(rec.sent.find(s => s.envelope.kind === 'reply')).toBeUndefined()
+    expect(agent.gateSnapshot()[0]?.draftBody).toBe('')
+  })
+
+  it('refuses to approve a gate with an empty body and keeps the gate', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13000)]), gateEngine(''))
+
+    const request: Envelope = {
+      id: 'req-approve-empty', kind: 'request', from: { id: 'b', name: 'node-B' }, to: { id: 'a', name: 'node-A' }, body: 'x', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+
+    const ok = await agent.approveGate('req-approve-empty')
+    expect(ok).toBe(false)
+    expect(rec.sent.find(s => s.envelope.kind === 'reply')).toBeUndefined()
+    expect(agent.gateSnapshot()).toHaveLength(1)
+  })
+
+  it('gates a project request whose session produced no answer', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent(
+      { id: 'a', name: 'node-A' },
+      store,
+      directory([peer('b', 'node-B', 13000)]),
+      autoEngine('auto answer'),
+      {
+        projects: [{ name: 'backend-api', path: '/home/a/api', broadcast: false }],
+        startProjectTask: async () => '',
+      },
+    )
+    const gateEvents: string[] = []
+    agent.on('gate-required', (e: { id: string }) => gateEvents.push(e.id))
+
+    const request: Envelope = {
+      id: 'req-no-answer', kind: 'request', from: { id: 'b', name: 'node-B' },
+      to: { id: 'a', name: 'node-A', project: 'backend-api' }, body: 'list files', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+
+    expect(gateEvents).toEqual(['req-no-answer'])
+    expect(rec.sent.find(s => s.envelope.kind === 'reply')).toBeUndefined()
+  })
 })
 
 describe('agent project routing', () => {

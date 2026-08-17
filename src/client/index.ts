@@ -45,6 +45,7 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
   const approveGate: P2POverlayInjected['approveGate'] = async (id, finalBody) => {
     const result = await p2p.approveGate(id, finalBody)
     if (!result.ok) throw new Error(result.error.message)
+    return result.value.ok
   }
   const rejectGate: P2POverlayInjected['rejectGate'] = async (id) => {
     const result = await p2p.rejectGate(id)

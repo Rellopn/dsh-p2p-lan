@@ -10,7 +10,7 @@ export interface P2POverlayInjected {
   gateSnapshot: () => Promise<Array<GateItem & { id: string }>>
   peers: () => Promise<PeerInfo[]>
   inboxSnapshot: () => Promise<Envelope[]>
-  approveGate: (id: string, finalBody?: string) => Promise<void>
+  approveGate: (id: string, finalBody?: string) => Promise<boolean>
   rejectGate: (id: string) => Promise<void>
 }
 
@@ -37,6 +37,7 @@ export function P2POverlay({ gateSnapshot, peers, inboxSnapshot, approveGate, re
   const [inbox, setInbox] = useState<Envelope[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [notice, setNotice] = useState('')
 
   const refresh = (): void => {
     void gateSnapshot().then(setGates, () => setGates([]))
@@ -52,10 +53,14 @@ export function P2POverlay({ gateSnapshot, peers, inboxSnapshot, approveGate, re
   const startEdit = (gate: GateItem & { id: string }): void => {
     setEditing(gate.id)
     setDraft(gate.draftBody)
+    setNotice('')
   }
   const submitEdit = (): void => {
     if (editing !== null) {
-      void approveGate(editing, draft).then(refresh)
+      void approveGate(editing, draft).then((ok) => {
+        if (!ok) setNotice('回复为空，已被拒绝发送——请填写内容后再发送。')
+        refresh()
+      })
     }
     setEditing(null)
   }
@@ -136,22 +141,32 @@ export function P2POverlay({ gateSnapshot, peers, inboxSnapshot, approveGate, re
               ))}
             </div>
           ) : null}
-          {gates.map(gate => (
-            <div key={gate.id} style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 8 }}>
-              <div style={{ fontWeight: 600 }}>来自 {gate.original.from.name}{gate.original.to.project ? ` · 项目 ${gate.original.to.project}` : ''}</div>
-              <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 4 }}>{gate.original.body}</div>
-              {gate.draftBody !== ''
-                ? <div style={{ marginTop: 4, fontSize: 12 }}>
-                  <span style={{ fontWeight: 600 }}>AI 起草：</span>{gate.draftBody}
+          {gates.map(gate => {
+            const draftEmpty = gate.draftBody.trim() === ''
+            return (
+              <div key={gate.id} style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 600 }}>来自 {gate.original.from.name}{gate.original.to.project ? ` · 项目 ${gate.original.to.project}` : ''}</div>
+                <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 4 }}>{gate.original.body}</div>
+                {draftEmpty
+                  ? <div style={{ marginTop: 4, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>
+                    AI 未能起草回复（provider 未配置或调用失败）。请点击「编辑」填写回复后再发送，空回复会被拒绝。
+                  </div>
+                  : <div style={{ marginTop: 4, fontSize: 12 }}>
+                    <span style={{ fontWeight: 600 }}>AI 起草：</span>{gate.draftBody}
+                  </div>}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button type="button" style={actionButton} disabled={draftEmpty} onClick={() => { void approveGate(gate.id).then((ok) => { if (!ok) setNotice('回复为空，已被拒绝发送——请填写内容后再发送。'); refresh() }) }}>批准</button>
+                  <button type="button" style={actionButton} onClick={() => startEdit(gate)}>编辑</button>
+                  <button type="button" style={actionButton} onClick={() => { void rejectGate(gate.id).then(refresh) }}>驳回</button>
                 </div>
-                : null}
-              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <button type="button" style={actionButton} onClick={() => { void approveGate(gate.id).then(refresh) }}>批准</button>
-                <button type="button" style={actionButton} onClick={() => startEdit(gate)}>编辑</button>
-                <button type="button" style={actionButton} onClick={() => { void rejectGate(gate.id).then(refresh) }}>驳回</button>
               </div>
+            )
+          })}
+          {notice !== '' ? (
+            <div style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 8, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>
+              {notice}
             </div>
-          ))}
+          ) : null}
         </div>
       )}
     </>

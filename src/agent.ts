@@ -145,11 +145,20 @@ export class Agent extends EventEmitter {
         return
       }
       const answer = await this.runProjectTask(project, envelope.body)
+      // A project session that produced no text must never auto-reply empty:
+      // gate it so a human decides (edit/reject) instead of sending ''.
+      if (answer.trim() === '') {
+        this.gates.set(envelope.id, { original: envelope, draftBody: '' })
+        this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
+        return
+      }
       await this.sendReply(envelope, peer, answer, true)
       return
     }
 
-    if (draft.needsGate || forceGate) {
+    // An empty draft (LLM failed, no provider/model, or model returned no
+    // text) must never auto-reply: it becomes a gate the human must edit.
+    if (draft.needsGate || forceGate || draft.body.trim() === '') {
       this.gates.set(envelope.id, { original: envelope, draftBody: draft.body })
       this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: draft.body })
       return
@@ -158,23 +167,30 @@ export class Agent extends EventEmitter {
   }
 
   /** Human approves a gated request: runs the project session (reply = result) or sends the edited draft. */
-  async approveGate(id: string, finalBody?: string): Promise<void> {
+  async approveGate(id: string, finalBody?: string): Promise<boolean> {
     const item = this.gates.get(id)
-    if (item === undefined) return
-    this.gates.delete(id)
+    if (item === undefined) return false
     const peer = this.resolvePeer(item.original.from.id, item.original.from.name)
 
     // A project-targeted request runs its session now; the reply is the result.
     const project = this.resolveProject(item.original)
     if (project !== undefined) {
       const answer = await this.runProjectTask(project, item.original.body)
+      // Never send an empty answer: keep the gate so the human can edit/reject.
+      if (answer.trim() === '') return false
+      this.gates.delete(id)
       if (peer !== undefined) await this.sendReply(item.original, peer, answer, false)
-      return
+      return true
     }
 
-    // A plain request replies with the (possibly edited) draft.
+    // A plain request replies with the (possibly edited) draft. An empty draft
+    // (LLM failure / no provider) must never be sent: keep the gate and refuse
+    // until the human actually writes something.
     const body = finalBody ?? item.draftBody
+    if (body.trim() === '') return false
+    this.gates.delete(id)
     if (peer !== undefined) await this.sendReply(item.original, peer, body, false)
+    return true
   }
 
   /** Resolve the local project a request targets, when one matches. */
