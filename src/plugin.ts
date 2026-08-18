@@ -301,7 +301,7 @@ export class P2PService extends TypertRemoteService {
     this.agent.setProjects(valid)
   }
 
-  private readonly startProjectTask = async (project: ProjectEntry, body: string): Promise<string> => {
+  private readonly startProjectTask = async (project: ProjectEntry, body: string, senderName: string): Promise<string> => {
     try {
       const agents = this.ctx.get('agents')
       const defaultModel = this.ctx.get('agentDefaultModel')
@@ -315,10 +315,11 @@ export class P2PService extends TypertRemoteService {
         return ''
       }
 
-      // Serialize requests per project so followups on the reused session never overlap.
-      const key = project.path
+      // One conversation per (project, colleague) pair, so several colleagues
+      // working in the same workspace never share a session.
+      const key = `${project.path}|${senderName}`
       const run = async (): Promise<string> => {
-        const session = await this.ensureProjectSession(agents, defaultModel, project)
+        const session = await this.ensureProjectSession(agents, defaultModel, project, senderName)
         if (session === undefined) return ''
         const agent = session.handle.agent
         await agent.whenIdle()
@@ -353,13 +354,14 @@ export class P2PService extends TypertRemoteService {
     }
   }
 
-  /** Get — or create once — the reused agent session for one project. */
+  /** Get — or create once — the reused agent session for one (project, colleague) pair. */
   private readonly ensureProjectSession = async (
     agents: AgentsRegistry,
     defaultModel: AgentDefaultModelService,
     project: ProjectEntry,
+    senderName: string,
   ): Promise<{ handle: ProjectSessionHandle; sessionId: SessionId } | undefined> => {
-    const key = project.path
+    const key = `${project.path}|${senderName}`
     const existing = this.projectSessions.get(key)
     if (existing !== undefined) return existing
 
@@ -390,6 +392,21 @@ export class P2PService extends TypertRemoteService {
       agentOptions: { provider: selection.provider, model: selection.model },
       ...(setup === undefined ? {} : { setup }),
     })
+
+    // Name the collaboration conversation after its colleague: "来自 xxx 的协作".
+    // The explicit title pins the session so automatic title generation cannot
+    // overwrite it, keeping one identifiable conversation per colleague.
+    const sessionTitle = this.ctx.get('sessionTitle') as
+      | { rename(session: unknown, title: string): unknown }
+      | undefined
+    if (sessionTitle !== undefined && handle.agent.session !== undefined) {
+      try {
+        sessionTitle.rename(handle.agent.session, `来自 ${senderName} 的协作`)
+      } catch (error) {
+        this.ctx.logger.warn('p2p-lan: session rename failed')
+        this.ctx.logger.warn(error)
+      }
+    }
 
     // Attach the session to the workspace whose path matches the project, so
     // the collaboration appears grouped (not "ungrouped") in the sidebar.

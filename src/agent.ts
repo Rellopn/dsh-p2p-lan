@@ -38,7 +38,7 @@ export class Agent extends EventEmitter {
   private readonly replyEngine: ReplyEngine
   private sendWaitTimeoutMs: number
   private projects: ProjectEntry[] | undefined
-  private readonly startProjectTask: ((project: ProjectEntry, body: string) => Promise<string>) | undefined
+  private readonly startProjectTask: ((project: ProjectEntry, body: string, senderName: string) => Promise<string>) | undefined
   private readonly pending = new Map<string, { resolve: (reply: Envelope | undefined) => void; timer: ReturnType<typeof setTimeout> }>()
   private readonly gates = new Map<string, GateItem>()
 
@@ -172,7 +172,7 @@ export class Agent extends EventEmitter {
         this.log('warn', `project request ${envelope.id} gated (needsGate=${draft.needsGate})`)
         return
       }
-      const answer = await this.runProjectTask(project, envelope.body)
+      const answer = await this.runProjectTask(project, envelope.body, envelope.from.name)
       // A project session that produced no text must never auto-reply empty:
       // gate it so a human decides (edit/reject) instead of sending ''.
       if (answer.trim() === '') {
@@ -211,7 +211,7 @@ export class Agent extends EventEmitter {
     // A project-targeted request runs its session now; the reply is the result.
     const project = this.resolveProject(item.original)
     if (project !== undefined) {
-      const answer = await this.runProjectTask(project, item.original.body)
+      const answer = await this.runProjectTask(project, item.original.body, item.original.from.name)
       // Never send an empty answer: keep the gate so the human can edit/reject.
       if (answer.trim() === '') {
         this.log('warn', `approveGate ${id}: project task returned empty -> gate kept`)
@@ -262,9 +262,9 @@ export class Agent extends EventEmitter {
   }
 
   /** Run the project session and return the AI's answer ('' when it cannot start). */
-  private async runProjectTask(project: ProjectEntry, body: string): Promise<string> {
+  private async runProjectTask(project: ProjectEntry, body: string, senderName: string): Promise<string> {
     if (this.startProjectTask === undefined) return ''
-    return this.startProjectTask(project, body)
+    return this.startProjectTask(project, body, senderName)
   }
 
   /** Human rejects a gated draft. */

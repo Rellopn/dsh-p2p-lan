@@ -92,8 +92,10 @@ export interface AgentOptions {
   /**
    * Host callback: run a request in a fresh session under the project dir and
    * return the AI's final answer (empty string when the run cannot start).
+   * `senderName` identifies the requesting peer so the host keeps one
+   * conversation per (project, colleague) pair.
    */
-  startProjectTask?: (project: ProjectEntry, body: string) => Promise<string>
+  startProjectTask?: (project: ProjectEntry, body: string, senderName: string) => Promise<string>
 }
 
 /** A pending-gate item: an inbound request whose draft reply awaits human review. */
