@@ -1,8 +1,9 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+﻿import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { GateItem } from '@rellopn/dsh-p2p-lan/types'
 import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { isPanelOpen, subscribePanel, togglePanel } from './panel-store.ts'
+import { badge } from './styles.ts'
 
 /** Registration-side data the footer badge needs. */
 export interface P2PFooterInjected {
@@ -12,7 +13,7 @@ export interface P2PFooterInjected {
 /** Full footer-action props assembled by the sidebar renderer. */
 export type P2PFooterProps = PropsRuntime<'sidebar.footer.action'> & SidebarFooterActionOwnerProps & InjectFace<P2PFooterInjected> & PropsLocale<'p2p'>
 
-/** Sidebar foot action: collaboration toggle with a pending-gate badge. */
+/** Sidebar collaboration entry: a prominent chunky bar with a pending-gate badge. */
 export function P2PFooterAction({ wide, gateSnapshot, t }: P2PFooterProps): ReactNode {
   const open = useSyncExternalStore(subscribePanel, isPanelOpen)
   const [pending, setPending] = useState(0)
@@ -32,17 +33,20 @@ export function P2PFooterAction({ wide, gateSnapshot, t }: P2PFooterProps): Reac
       type="button"
       onClick={togglePanel}
       aria-pressed={open}
+      className="p2p-clickable"
       style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 6,
-        background: open ? 'var(--dsw-alias-bg-layer-2)' : 'var(--dsw-alias-bg-layer-1)',
+        display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+        border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10,
+        background: open ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-base))'
+          : 'var(--dsw-alias-bg-layer-1)',
         color: 'var(--dsw-alias-label-primary)',
-        padding: '4px 8px', fontSize: 12, cursor: 'pointer',
+        padding: wide ? '8px 10px' : '6px', fontSize: 13, cursor: 'pointer',
       }}
     >
-      <span>👥</span>
-      {wide ? <span>{t('footer.label')}</span> : null}
-      {pending > 0 ? <span style={{ background: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-label-primary-inverted)', borderRadius: 9, padding: '0 6px', fontSize: 11 }}>{pending}</span> : null}
+      <span style={{ fontSize: wide ? 15 : 16 }}>👥</span>
+      {wide ? <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>{t('footer.label')}</span> : null}
+      {pending > 0 ? <span style={badge}>{pending}</span> : null}
+      {wide ? <span style={{ color: 'var(--dsw-alias-label-tertiary)' }}>›</span> : null}
     </button>
   )
 }

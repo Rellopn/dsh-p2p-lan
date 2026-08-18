@@ -38,6 +38,7 @@
     "src/client/P2POverlay.tsx",
     "src/client/P2PSettingsSection.tsx",
     "src/client/panel-store.ts",
+    "src/client/styles.ts",
     "src/types.ts"
   ]
 }

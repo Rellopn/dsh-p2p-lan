@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // The generated Remote contribution: self-mounted so a standalone plugin does not
 // depend on api-remotes hard-coding its namespace.
 import p2pRemote from '@rellopn/dsh-p2p-lan/remote'
+import { installP2PStyle } from './styles.ts'
 import { en, zh } from './i18n.ts'
 import { P2PFooterAction, type P2PFooterInjected } from './P2PFooterAction.tsx'
 import { P2POverlay, type P2POverlayInjected } from './P2POverlay.tsx'
@@ -28,6 +29,8 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
   // Register the bilingual (zh/en) dictionaries; the slot registrations below
   // declare `locale: 'p2p'`, which injects the typed `t` seat into the panels.
   ctx.effect(() => ctx.locale.register('p2p', { zh, en }), 'p2p-lan: dictionaries')
+  // Inject the scoped interaction stylesheet (hover/focus/active) once.
+  const disposeStyle = installP2PStyle()
   // The mounted namespace lives in a sibling fiber, so the Cordis context proxy
   // cannot resolve `ctx.remote.p2p` without an inject edge (the namespace does
   // not exist until this very apply runs). Read it from the reflect store.
@@ -118,5 +121,8 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot }),
   }, P2PSettingsSection)
 
-  return disposeRemote
+  return async () => {
+    disposeStyle()
+    await disposeRemote()
+  }
 }

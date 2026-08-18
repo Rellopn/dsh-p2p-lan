@@ -85,6 +85,9 @@ export type P2PKey =
   | 'settings.debugNoFrames'
   | 'settings.projectsTitle'
   | 'settings.projectsHint'
+  | 'settings.discoveryTitle'
+  | 'settings.communicationTitle'
+  | 'settings.replyTitle'
   | 'settings.noProjects'
   | 'settings.projectNamePlaceholder'
   | 'settings.projectPathPlaceholder'
@@ -181,6 +184,9 @@ export const zh: P2PDict = {
   'settings.refreshDebug': '刷新调试数据',
   'settings.debugNoFrames': '暂无连接帧（发/收消息后这里会出现原始 JSON）。',
   'settings.projectsTitle': '协作项目',
+  'settings.discoveryTitle': '身份与发现',
+  'settings.communicationTitle': '通信',
+  'settings.replyTitle': '回复引擎',
   'settings.projectsHint': '管理本机可接收需求的项目目录。只有「广播」打开的项目名会展示给同事，绝对路径永不外泄。',
   'settings.noProjects': '暂无项目',
   'settings.projectNamePlaceholder': '项目名（如 backend-api 或 羽毛球）',
@@ -270,6 +276,9 @@ export const en: P2PDict = {
   'settings.refreshDebug': 'Refresh debug data',
   'settings.debugNoFrames': 'No connection frames yet (raw JSON will appear here once messages are sent/received).',
   'settings.projectsTitle': 'Collaboration projects',
+  'settings.discoveryTitle': 'Identity & Discovery',
+  'settings.communicationTitle': 'Communication',
+  'settings.replyTitle': 'Reply engine',
   'settings.projectsHint': 'Manage local directories that can receive requests. Only projects with "broadcast" on are shown to peers; absolute paths never leave the machine.',
   'settings.noProjects': 'No projects yet',
   'settings.projectNamePlaceholder': 'Project name (e.g. backend-api)',
