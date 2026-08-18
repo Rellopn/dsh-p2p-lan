@@ -393,7 +393,8 @@ export class P2PService extends TypertRemoteService {
       ...(setup === undefined ? {} : { setup }),
     })
 
-    // Name the collaboration conversation after its colleague: "来自 xxx 的协作".
+    // Name the collaboration conversation after its colleague: "🤝 来自 xxx 的
+    // 协作" — the symbol sets it apart from the user's own sessions at a glance.
     // The explicit title pins the session so automatic title generation cannot
     // overwrite it, keeping one identifiable conversation per colleague.
     const sessionTitle = this.ctx.get('sessionTitle') as
@@ -401,7 +402,7 @@ export class P2PService extends TypertRemoteService {
       | undefined
     if (sessionTitle !== undefined && handle.agent.session !== undefined) {
       try {
-        sessionTitle.rename(handle.agent.session, `来自 ${senderName} 的协作`)
+        sessionTitle.rename(handle.agent.session, `🤝 来自 ${senderName} 的协作`)
       } catch (error) {
         this.ctx.logger.warn('p2p-lan: session rename failed')
         this.ctx.logger.warn(error)
