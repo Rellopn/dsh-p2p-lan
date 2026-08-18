@@ -18,7 +18,7 @@ import { Store } from './store.ts'
 import { Transport } from './transport.ts'
 import { appendDiagLog, openDiagLog } from './diag-log.ts'
 import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
-import type { Config as ConfigModel, DebugSnapshot, NodeStatus } from './types.ts'
+import type { Config as ConfigModel, DebugSnapshot, ManualPeer, NodeStatus } from './types.ts'
 
 // The wire type lives in ./types.ts (exported via the `./types` subpath for the
 // client/Remote face); re-export it here so this module can use the `Config`
@@ -58,6 +58,8 @@ export const Config: z<ConfigModel> = z.object({
   capabilities: z.array(z.string()).default([]),
   autoDiscover: z.boolean().default(true),
   manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })).default([]),
+  autoAccept: z.boolean().default(true),
+  knownPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })).default([]),
   port: z.number().default(53420),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const).default('standard'),
   sendWaitTimeoutMs: z.number().default(300_000),
@@ -79,6 +81,8 @@ export const SettingsSchema: z<ConfigModel> = z.object({
   capabilities: z.array(z.string()),
   autoDiscover: z.boolean(),
   manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })),
+  autoAccept: z.boolean(),
+  knownPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })),
   port: z.number(),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const),
   sendWaitTimeoutMs: z.number(),
@@ -171,6 +175,7 @@ export class P2PService extends TypertRemoteService {
       port: config.port,
       autoDiscover: config.autoDiscover,
       manualPeers: config.manualPeers,
+      knownPeers: config.knownPeers,
       projects,
     })
     this.store = new Store(this.transport)
@@ -185,10 +190,12 @@ export class P2PService extends TypertRemoteService {
     this.agent = new Agent(this.identity, this.store, this.discovery, this.replyEngine, {
       sendWaitTimeoutMs: config.sendWaitTimeoutMs,
       projects,
+      advertised: { host: this.lanHost, port: config.port },
       startProjectTask: this.startProjectTask,
     })
 
     this.transport.on('envelope', (envelope: Envelope) => {
+      this.learnInboundPeer(envelope)
       const line = `inbound ${envelope.kind} id=${envelope.id} from=${envelope.from.name} to=${JSON.stringify(envelope.to)} body=${envelope.body.slice(0, 80)}`
       this.ctx.logger.info(`p2p-lan: ${line}`)
       appendDiagLog('info', line)
@@ -229,6 +236,7 @@ export class P2PService extends TypertRemoteService {
     try {
       const actualPort = await this.transport.start()
       this.discovery.setAdvertisedPort(actualPort)
+      this.agent.setAdvertised(this.lanHost, actualPort)
       this.discovery.start()
       this.started = true
       appendDiagLog('info', `transport listening on ${actualPort} (requested ${this.config.port})`)
@@ -294,11 +302,39 @@ export class P2PService extends TypertRemoteService {
     })
     this.discovery.setCapabilities(next.capabilities)
     this.discovery.setManualPeers(next.manualPeers)
+    this.discovery.setKnownPeers(next.knownPeers)
     this.lanHost = this.resolveAdvertisedHost(next)
     this.discovery.setAdvertisedHost(this.lanHost)
+    this.agent.setAdvertised(this.lanHost, this.transport.effectivePort() ?? next.port)
     this.agent.setSendWaitTimeoutMs(next.sendWaitTimeoutMs)
     this.discovery.setProjects(broadcastProjects)
     this.agent.setProjects(valid)
+  }
+
+  /** On inbound envelope, maybe auto-add the sender as a persistent known peer. */
+  private learnInboundPeer(envelope: Envelope): void {
+    if (!this.config.autoAccept) return
+    const from = envelope.from
+    if (from.id === this.identity.id) return
+    if (typeof from.host !== 'string' || from.host === '') return
+    if (typeof from.port !== 'number' || !Number.isFinite(from.port) || from.port <= 0) return
+    try {
+      const isNew = this.discovery.learnKnownPeer({ id: from.id, name: from.name, host: from.host, port: from.port })
+      if (isNew) {
+        const next: ManualPeer[] = [
+          ...this.config.knownPeers.filter(peer => peer.name !== from.name),
+          { name: from.name, host: from.host, port: from.port },
+        ]
+        this.config = { ...this.config, knownPeers: next }
+        this.discovery.setKnownPeers(next)
+        void this.configPersist(this.config)
+        appendDiagLog('info', `auto-accepted peer ${from.name} (${from.host}:${from.port})`)
+        this.ctx.logger.info(`p2p-lan: auto-accepted peer ${from.name} (${from.host}:${from.port})`)
+      }
+    } catch (error) {
+      this.ctx.logger.warn('p2p-lan: learnInboundPeer failed')
+      this.ctx.logger.warn(error)
+    }
   }
 
   private readonly startProjectTask = async (project: ProjectEntry, body: string, senderName: string): Promise<string> => {

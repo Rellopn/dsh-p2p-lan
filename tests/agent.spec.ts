@@ -208,6 +208,49 @@ describe('agent inbound routing', () => {
   })
 })
 
+describe('agent outbound from address', () => {
+  it('omits from.host/port when no advertised address is configured', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13000)]), autoEngine())
+    await agent.send({ name: 'node-B' }, 'hi')
+    const envelope = rec.sent[0]?.envelope
+    expect(envelope?.from.host).toBeUndefined()
+    expect(envelope?.from.port).toBeUndefined()
+  })
+
+  it('carries the advertised host/port on the from of every outbound envelope', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent(
+      { id: 'a', name: 'node-A' },
+      store,
+      directory([peer('b', 'node-B', 13000)]),
+      autoEngine('auto answer'),
+      { advertised: { host: '10.0.0.8', port: 53421 } },
+    )
+    await agent.send({ name: 'node-B' }, 'hi')
+    const request = rec.sent[0]?.envelope
+    expect(request?.from).toMatchObject({ id: 'a', name: 'node-A', host: '10.0.0.8', port: 53421 })
+
+    // Replies built by the agent carry the same advertised address too.
+    await agent.handleInbound({
+      id: 'reqA1', kind: 'request', from: { id: 'b', name: 'node-B' }, to: { id: 'a', name: 'node-A' }, body: 'q', ts: Date.now(),
+    })
+    const reply = rec.sent.find(s => s.envelope.kind === 'reply')?.envelope
+    expect(reply?.from).toMatchObject({ id: 'a', name: 'node-A', host: '10.0.0.8', port: 53421 })
+  })
+
+  it('setAdvertised updates the address carried on later envelopes', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13000)]), autoEngine())
+    agent.setAdvertised('10.0.0.9', 9999)
+    await agent.send({ name: 'node-B' }, 'hi')
+    expect(rec.sent[0]?.envelope.from).toMatchObject({ host: '10.0.0.9', port: 9999 })
+  })
+})
+
 describe('agent project routing', () => {
   it('runs the project session on approval and replies with its result', async () => {
     const rec = recordingTransport()

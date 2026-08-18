@@ -24,6 +24,10 @@ export interface Config {
   capabilities: string[]
   autoDiscover: boolean
   manualPeers: ManualPeer[]
+  /** Auto-accept a previously-unknown peer on first contact (payload carries its address). */
+  autoAccept: boolean
+  /** Peers auto-learned on first contact and persisted (distinct from manual, not reconciled). */
+  knownPeers: ManualPeer[]
   port: number
   groupTable: Record<string, string[]>
   sensitivity: Sensitivity
@@ -90,6 +94,8 @@ export const defaultConfig: Config = {
   capabilities: [],
   autoDiscover: true,
   manualPeers: [],
+  autoAccept: true,
+  knownPeers: [],
   port: DEFAULT_PORT,
   groupTable: {},
   sensitivity: 'standard',

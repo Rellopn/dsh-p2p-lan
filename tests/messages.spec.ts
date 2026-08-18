@@ -26,6 +26,16 @@ describe('messages model', () => {
     expect(validateEnvelope(valid())).toEqual({ ok: true })
   })
 
+  it('accepts an envelope whose from carries host/port', () => {
+    const e = { ...valid(), from: { id: 'a', name: 'node-A', host: '10.0.0.8', port: 53420 } }
+    expect(validateEnvelope(e)).toEqual({ ok: true })
+  })
+
+  it('rejects a malformed from.host or from.port', () => {
+    expect(validateEnvelope({ ...valid(), from: { id: 'a', name: 'node-A', host: 123 } }).ok).toBe(false)
+    expect(validateEnvelope({ ...valid(), from: { id: 'a', name: 'node-A', port: '53420' } }).ok).toBe(false)
+  })
+
   it('rejects an empty id', () => {
     const e: Record<string, unknown> = { ...valid(), id: '' }
     const result = validateEnvelope(e)

@@ -11,6 +11,9 @@
 export interface PeerRef {
   id: string
   name: string
+  /** Sender's reachable advertised address (used for automatic peer pairing). */
+  host?: string
+  port?: number
 }
 
 /** How a message is addressed; at least one routing key is required. */
@@ -90,6 +93,12 @@ export interface AgentOptions {
   /** Local project table; resolves `to.project` to a directory. */
   projects?: ProjectEntry[]
   /**
+   * This node's reachable advertised address (host + effective port), attached
+   * to every outbound envelope's `from` so peers can automatically learn how to
+   * reach us (first-contact pairing).
+   */
+  advertised?: { host: string; port: number }
+  /**
    * Host callback: run a request in a fresh session under the project dir and
    * return the AI's final answer (empty string when the run cannot start).
    * `senderName` identifies the requesting peer so the host keeps one
@@ -137,6 +146,10 @@ export interface Config {
   capabilities: string[]
   autoDiscover: boolean
   manualPeers: ManualPeer[]
+  /** Auto-accept a previously-unknown peer on first contact (payload carries its address). */
+  autoAccept: boolean
+  /** Peers auto-learned on first contact and persisted (distinct from manual, not reconciled). */
+  knownPeers: ManualPeer[]
   port: number
   sensitivity: Sensitivity
   sendWaitTimeoutMs: number

@@ -12,6 +12,7 @@ A single **dual-face** plugin — the **host bundle** (`dsh.bundle`) ships the P
 ## Features
 
 - **Automatic discovery** — UDP multicast beacon discovery, plus a manual-peer fallback (`manualPeers`) when multicast is blocked
+- **Mutual pairing on first contact** — with `autoAccept` on, a one-sided `manualPeers` entry becomes a mutual link: your first message carries your address, and the colleague auto-adds you as a `knownPeers` entry (no second-side config)
 - **Capability routing** — address a message to any online node that declares a matching tag (`send_to_capability`)
 - **Broadcast** — one message to every peer, with anti-storm protection (broadcasts never auto-reply)
 - **LLM auto-reply with a human gate** — drafts replies through your configured `provider`/`model`; gate bias is configurable (`lenient` / `standard` / `strict`) and degrades to gate-everything when no LLM is configured
@@ -58,6 +59,8 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | `capabilities` | `[]` | Capability tags for `send_to_capability` routing |
 | `autoDiscover` | `true` | UDP multicast discovery |
 | `manualPeers` | `[]` | `[{ name, host, port }]` fallback when multicast is blocked |
+| `autoAccept` | `true` | Auto-add a previously-unknown peer on first contact (the sender carries its reachable address), so a one-sided `manualPeers` entry becomes a mutual link without configuring the other side |
+| `knownPeers` | `[]` | `[{ name, host, port }]` peers auto-learned on first contact and persisted locally (kept separate from `manualPeers`; not touched by `manualPeers` reconciliation) |
 | `port` | `53420` | Requested WebSocket listen port; when busy the plugin binds the next free port (`port`→`port+199`) and advertises the real one. A hot-reload's own closing server is waited out first, so the port does not drift. The settings panel shows the actual port in use |
 | `sensitivity` | `'standard'` | Gate bias: `lenient` / `standard` / `strict` |
 | `sendWaitTimeoutMs` | `300000` | Synchronous reply timeout (ms) |
@@ -70,9 +73,12 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 ## WSL2 / broadcast-disabled networks
 
 On networks that block multicast/broadcast (company VLANs, WSL2, docker bridge
-networks), auto-discovery cannot work: **every node must be wired with
-`manualPeers` on both sides.** There is no way around it — discovery is UDP
-multicast only.
+networks), auto-discovery cannot work: you must wire a **one-sided** `manualPeers`
+entry for each colleague. With `autoAccept` on (default), when you first message
+a colleague your node sends its reachable address, and they **automatically add
+you** as a `knownPeers` entry — so you no longer need to configure both sides by
+hand; the peer relationship becomes mutual from a single entry. (Turn `autoAccept`
+off to require fully manual configuration on both sides.)
 
 For a dsh running **inside WSL2** (NAT, own 172.x network):
 
@@ -86,12 +92,14 @@ For a dsh running **inside WSL2** (NAT, own 172.x network):
    Or enable `networkingMode=mirrored` in `%UserProfile%\.wslconfig` (Win11 22H2+),
    which mirrors WSL ports and multicast onto the Windows host automatically.
 
-2. **Configure both sides** with `manualPeers` — replies are new outbound
-   connections, so each node must know the other's address:
+2. **Configure one side** with `manualPeers` (replies are new outbound
+   connections); with `autoAccept` on, the first message makes the pairing
+   mutual so only one node needs the entry — but keep the address it advertises
+   reachable:
    - On the remote peer: `{ name: 'wsl-node', host: '<Windows-LAN-IP>', port: 53420 }`
-   - On the WSL node: `{ name: 'remote', host: '<remote-LAN-IP>', port: 53420 }`
-   - Optionally set `advertisedHost: '<Windows-LAN-IP>'` on the WSL node so any
-     node that *can* receive its announce learns the reachable address.
+   - The WSL node replies using the address in `knownPeers`, learned from the
+     remote's first message; if the WSL node sends first, set `advertisedHost` (step 2b)
+     so its reachable address is carried.
 
 3. **Verify** with the included simulation (docker bridge already blocks
    multicast, i.e. it is a broadcast-disabled network with a port-proxy relay):

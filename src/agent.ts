@@ -38,6 +38,7 @@ export class Agent extends EventEmitter {
   private readonly replyEngine: ReplyEngine
   private sendWaitTimeoutMs: number
   private projects: ProjectEntry[] | undefined
+  private advertised: { host: string; port: number } | undefined
   private readonly startProjectTask: ((project: ProjectEntry, body: string, senderName: string) => Promise<string>) | undefined
   private readonly pending = new Map<string, { resolve: (reply: Envelope | undefined) => void; timer: ReturnType<typeof setTimeout> }>()
   private readonly gates = new Map<string, GateItem>()
@@ -50,7 +51,13 @@ export class Agent extends EventEmitter {
     this.replyEngine = replyEngine
     this.sendWaitTimeoutMs = options.sendWaitTimeoutMs ?? DEFAULT_SEND_WAIT_TIMEOUT_MS
     this.projects = options.projects
+    this.advertised = options.advertised
     this.startProjectTask = options.startProjectTask
+  }
+
+  /** Update this node's reachable advertised address (used by live edits / binding). */
+  setAdvertised(host: string, port: number): void {
+    this.advertised = { host, port }
   }
 
   /** Emit a structured log record (`level`: info|warn|error) for the host to forward. */
@@ -327,7 +334,11 @@ export class Agent extends EventEmitter {
     const envelope: Envelope = {
       id: randomUUID(),
       kind,
-      from: { id: this.identity.id, name: this.identity.name },
+      from: {
+        id: this.identity.id,
+        name: this.identity.name,
+        ...(this.advertised === undefined ? {} : { host: this.advertised.host, port: this.advertised.port }),
+      },
       to,
       body,
       ts: Date.now(),

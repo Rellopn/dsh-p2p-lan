@@ -52,6 +52,12 @@ export type P2PKey =
   | 'settings.manualPort'
   | 'settings.remove'
   | 'settings.addManualPeer'
+  | 'settings.autoAccept'
+  | 'settings.autoAcceptLabel'
+  | 'settings.autoAcceptHint'
+  | 'settings.knownPeers'
+  | 'settings.noKnownPeers'
+  | 'settings.knownPeersHint'
   | 'settings.port'
   | 'settings.portHintRebind'
   | 'settings.portBusy'
@@ -143,6 +149,12 @@ export const zh: P2PDict = {
   'settings.manualPort': 'port',
   'settings.remove': '删除',
   'settings.addManualPeer': '＋ 添加手动节点',
+  'settings.autoAccept': '自动接受（首次接触自动互加）',
+  'settings.autoAcceptLabel': '开启（我首次连上同事发消息时，他会自动把我加为已知节点）',
+  'settings.autoAcceptHint': '你仍只需在自己一侧配置「手动节点」；对方会自动把你持久化并回信。关闭后回到全手动。',
+  'settings.knownPeers': '已知节点（自动互加）',
+  'settings.noKnownPeers': '暂无自动互加的节点',
+  'settings.knownPeersHint': '由「自动接受」在首次接触时生成并本地持久化，与手动节点分开维护；删除后对方需要再次主动联系才恢复。',
   'settings.port': '传输端口',
   'settings.portHintRebind': '改端口会重启 WebSocket server（进程不重启）。',
   'settings.portBusy': '请求的 {requested} 被占用，当前实际监听 {effective}（将广播给局域网同事）。',
@@ -226,6 +238,12 @@ export const en: P2PDict = {
   'settings.manualPort': 'port',
   'settings.remove': 'Remove',
   'settings.addManualPeer': '＋ Add manual peer',
+  'settings.autoAccept': 'Auto-accept (mutual add on first contact)',
+  'settings.autoAcceptLabel': 'Enabled (when I first message a colleague, they automatically add me as a known peer)',
+  'settings.autoAcceptHint': 'You still only configure the "Manual peer" on your own side; the other side auto-persists you and can reply. Turn off to go fully manual.',
+  'settings.knownPeers': 'Known peers (auto-added)',
+  'settings.noKnownPeers': 'No auto-added peers yet',
+  'settings.knownPeersHint': 'Created and persisted on first contact via "Auto-accept", kept separate from manual peers; after removal the peer must contact you again to be re-added.',
   'settings.port': 'Transport port',
   'settings.portHintRebind': 'Changing the port restarts the WebSocket server (process keeps running).',
   'settings.portBusy': 'Requested {requested} is busy; actually listening on {effective} (advertised to LAN peers).',

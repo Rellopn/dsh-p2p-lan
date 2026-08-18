@@ -60,6 +60,8 @@ export function validateEnvelope(input: unknown): ValidationResult {
   } else {
     if (typeof from.id !== 'string' || from.id.length === 0) errors.push('from.id must be a non-empty string')
     if (typeof from.name !== 'string' || from.name.length === 0) errors.push('from.name must be a non-empty string')
+    if (from.host !== undefined && typeof from.host !== 'string') errors.push('from.host must be a string when present')
+    if (from.port !== undefined && (typeof from.port !== 'number' || !Number.isFinite(from.port))) errors.push('from.port must be a finite number when present')
   }
 
   const to = env.to as Record<string, unknown> | undefined

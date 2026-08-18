@@ -31,6 +31,8 @@ export interface DiscoveryOptions {
   port: number
   autoDiscover: boolean
   manualPeers: ManualPeer[]
+  /** Auto-accepted peers (persisted on first contact); kept in the directory indefinitely. */
+  knownPeers?: ManualPeer[]
   /** Local project table; only `broadcast: true` names are announced. */
   projects?: ProjectEntry[]
   multicastAddress?: string
@@ -64,6 +66,8 @@ export class Discovery extends EventEmitter {
   private port: number
   private readonly autoDiscover: boolean
   private readonly manualPeers: ManualPeer[]
+  private knownPeers: ManualPeer[]
+  private knownNames = new Set<string>()
   private projects: string[]
   private readonly multicastAddress: string
   private readonly multicastPort: number
@@ -85,6 +89,8 @@ export class Discovery extends EventEmitter {
     this.port = options.port
     this.autoDiscover = options.autoDiscover
     this.manualPeers = options.manualPeers
+    this.knownPeers = options.knownPeers ?? []
+    this.knownNames = new Set(this.knownPeers.map(peer => peer.name))
     this.projects = (options.projects ?? []).filter(entry => entry.broadcast).map(entry => entry.name)
     this.multicastAddress = options.multicastAddress ?? DEFAULT_MULTICAST_ADDRESS
     this.multicastPort = options.multicastPort ?? DEFAULT_MULTICAST_PORT
@@ -96,6 +102,7 @@ export class Discovery extends EventEmitter {
   /** Start advertising and listening. Idempotent. */
   start(): void {
     this.setManualPeers(this.manualPeers)
+    this.setKnownPeers(this.knownPeers)
     if (!this.autoDiscover) return
 
     this.socket = createSocket({ type: 'udp4', reuseAddr: true })
@@ -182,6 +189,56 @@ export class Discovery extends EventEmitter {
     }
   }
 
+  /**
+   * Reconcile the known-peer directory with a new list (live settings edits /
+   * first contact): drop known entries no longer listed, upsert the rest. Known
+   * peers never overwrite a manually-configured peer of the same name.
+   */
+  setKnownPeers(peers: ManualPeer[]): void {
+    const nextNames = new Set(peers.map(peer => peer.name))
+    for (const [id, peer] of this.directory) {
+      if (peer.manual) continue
+      if (this.knownNames.has(peer.name) && !nextNames.has(peer.name)) this.directory.delete(id)
+    }
+    for (const known of peers) this.upsertKnown({ id: `known:${known.name}`, ...known })
+    this.knownNames = nextNames
+  }
+
+  /**
+   * Learn a peer from an inbound first contact carrying its reachable address.
+   * Keeps it in the directory (persistent) and records its name as known.
+   * Returns true when the name was not previously known, so the caller can
+   * persist it into config. Never overwrites a manually-configured peer.
+   */
+  learnKnownPeer(info: { id: string; name: string; host: string; port: number }): boolean {
+    const existing = this.resolveByName(info.name)
+    if (existing !== undefined && existing.manual) return false
+    const isNew = !this.knownNames.has(info.name)
+    this.upsertKnown(info)
+    this.knownNames.add(info.name)
+    return isNew
+  }
+
+  /** Upsert a persistent known peer, replacing any prior entry with the same name. */
+  private upsertKnown(info: { id: string; name: string; host: string; port: number }): void {
+    for (const [id, peer] of this.directory) {
+      if (peer.name === info.name && !peer.manual) {
+        this.directory.delete(id)
+        break
+      }
+    }
+    this.upsert({
+      id: info.id,
+      name: info.name,
+      capabilities: [],
+      projects: [],
+      host: info.host,
+      port: info.port,
+      lastSeen: Date.now(),
+      manual: false,
+    })
+  }
+
   resolveById(id: string): PeerInfo | undefined {
     return this.directory.get(id)
   }
@@ -258,6 +315,7 @@ export class Discovery extends EventEmitter {
     const now = Date.now()
     for (const [id, peer] of this.directory) {
       if (peer.manual) continue
+      if (this.knownNames.has(peer.name)) continue
       if (now - peer.lastSeen > this.peerTtlMs) {
         this.directory.delete(id)
         this.emit('peer-offline', peer)

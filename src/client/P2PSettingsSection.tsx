@@ -206,6 +206,36 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         {t('settings.addManualPeer')}
       </button>
 
+      <div style={label}>{t('settings.autoAccept')}</div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4 }}>
+        <input
+          type="checkbox"
+          checked={config.autoAccept}
+          onChange={() => { patch({ autoAccept: !config.autoAccept }) }}
+        />
+        {t('settings.autoAcceptLabel')}
+      </label>
+      <div style={hint}>{t('settings.autoAcceptHint')}</div>
+
+      <div style={label}>{t('settings.knownPeers')}</div>
+      {config.knownPeers.length === 0
+        ? <div style={hint}>{t('settings.noKnownPeers')}</div>
+        : null}
+      {config.knownPeers.map((peer, index) => (
+        <div key={index} style={row}>
+          <span style={{ ...input, flex: 1 }}>{peer.name}</span>
+          <span style={{ ...input, flex: 2 }}>{peer.host}:{peer.port}</span>
+          <button
+            type="button"
+            style={{ ...input, cursor: 'pointer', color: 'var(--dsw-alias-state-error-primary)' }}
+            onClick={() => { patch({ knownPeers: config.knownPeers.filter((_, i) => i !== index) }) }}
+          >
+            {t('settings.remove')}
+          </button>
+        </div>
+      ))}
+      <div style={hint}>{t('settings.knownPeersHint')}</div>
+
       <div style={label}>{t('settings.port')}</div>
       <input
         value={config.port}

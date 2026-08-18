@@ -100,3 +100,87 @@ describe('discovery', () => {
     }
   })
 })
+
+describe('discovery known peers', () => {
+  function makeOptions(overrides: Partial<DiscoveryOptions> = {}): DiscoveryOptions {
+    return {
+      identity: { id: 'a', name: 'node-A' },
+      capabilities: [],
+      host: '127.0.0.1',
+      port: 10001,
+      autoDiscover: false,
+      manualPeers: [],
+      multicastAddress: MCAST_ADDR,
+      multicastPort: MCAST_PORT,
+      ...overrides,
+    }
+  }
+
+  it('loads knownPeers config into a persistent directory entry', () => {
+    const a = new Discovery(makeOptions({ knownPeers: [{ name: 'node-K', host: '10.0.0.9', port: 9001 }] }))
+    a.start()
+    try {
+      expect(a.resolveByName('node-K')?.host).toBe('10.0.0.9')
+      expect(a.resolveByName('node-K')?.port).toBe(9001)
+    } finally {
+      a.stop()
+    }
+  })
+
+  it('learnKnownPeer adds a peer once and reports fresh additions', () => {
+    const a = new Discovery(makeOptions())
+    a.start()
+    try {
+      expect(a.learnKnownPeer({ id: 'k', name: 'node-K', host: '10.0.0.9', port: 9001 })).toBe(true)
+      expect(a.resolveById('k')?.host).toBe('10.0.0.9')
+      // A second contact with the same name is not a fresh addition.
+      expect(a.learnKnownPeer({ id: 'k2', name: 'node-K', host: '10.0.0.9', port: 9001 })).toBe(false)
+      expect(a.peers().filter(p => p.name === 'node-K')).toHaveLength(1)
+    } finally {
+      a.stop()
+    }
+  })
+
+  it('does not let a learned peer overwrite a manual peer of the same name', () => {
+    const a = new Discovery(makeOptions({ manualPeers: [{ name: 'node-K', host: '127.0.0.1', port: 9000 }] }))
+    a.start()
+    try {
+      expect(a.learnKnownPeer({ id: 'k', name: 'node-K', host: '10.0.0.9', port: 9001 })).toBe(false)
+      const peer = a.resolveByName('node-K')
+      expect(peer?.manual).toBe(true)
+      expect(peer?.host).toBe('127.0.0.1')
+    } finally {
+      a.stop()
+    }
+  })
+
+  it('never sweeps a known peer even after TTL', async () => {
+    const a = new Discovery(makeOptions({ autoDiscover: true, knownPeers: [{ name: 'node-K', host: '127.0.0.1', port: 9001 }] }))
+    const b = new Discovery(makeOptions({ autoDiscover: true, identity: { id: 'b', name: 'node-B' }, port: 10002 }))
+    b.start()
+    try {
+      a.start()
+      // Wait for a to see b via multicast announce (its own TTL sweeps discovered peers).
+      await waitFor(() => a.resolveByName('node-B') !== undefined)
+      // node-B is discovered (swept); node-K is a known peer and must persist.
+      b.stop()
+      await waitFor(() => a.resolveByName('node-B') === undefined, 4000)
+      expect(a.resolveByName('node-K')).toBeDefined()
+    } finally {
+      a.stop()
+      b.stop()
+    }
+  })
+
+  it('setKnownPeers drops entries no longer listed and refreshes addresses', () => {
+    const a = new Discovery(makeOptions({ knownPeers: [{ name: 'node-K', host: '10.0.0.9', port: 9001 }] }))
+    a.start()
+    try {
+      a.setKnownPeers([{ name: 'node-K', host: '10.0.0.10', port: 9002 }, { name: 'node-J', host: '10.0.0.11', port: 9003 }])
+      expect(a.resolveByName('node-K')?.host).toBe('10.0.0.10')
+      expect(a.resolveByName('node-J')?.port).toBe(9003)
+    } finally {
+      a.stop()
+    }
+  })
+})

@@ -11,6 +11,9 @@ describe('config', () => {
     expect(config.sensitivity).toBe('standard')
     expect(config.autoDiscover).toBe(true)
     expect(config.port).toBe(DEFAULT_PORT)
+    // Auto-accept is on by default; nothing auto-added yet.
+    expect(config.autoAccept).toBe(true)
+    expect(config.knownPeers).toEqual([])
     // An empty name means "auto-generate at mount time" (hostname + random).
     expect(config.nodeName).toBe('')
     // An empty advertised host means "auto-detect the LAN address".
@@ -38,6 +41,8 @@ describe('config', () => {
 
   it('keeps defaults untouched', () => {
     expect(defaultConfig.manualPeers).toEqual([])
+    expect(defaultConfig.knownPeers).toEqual([])
+    expect(defaultConfig.autoAccept).toBe(true)
   })
 })
 
