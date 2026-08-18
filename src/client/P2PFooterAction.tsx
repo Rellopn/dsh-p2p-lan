@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { GateItem } from '@rellopn/dsh-p2p-lan/types'
 import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { isPanelOpen, subscribePanel, togglePanel } from './panel-store.ts'
 
 /** Registration-side data the footer badge needs. */
@@ -10,10 +10,10 @@ export interface P2PFooterInjected {
 }
 
 /** Full footer-action props assembled by the sidebar renderer. */
-export type P2PFooterProps = PropsRuntime<'sidebar.footer.action'> & SidebarFooterActionOwnerProps & InjectFace<P2PFooterInjected>
+export type P2PFooterProps = PropsRuntime<'sidebar.footer.action'> & SidebarFooterActionOwnerProps & InjectFace<P2PFooterInjected> & PropsLocale<'p2p'>
 
 /** Sidebar foot action: collaboration toggle with a pending-gate badge. */
-export function P2PFooterAction({ wide, gateSnapshot }: P2PFooterProps): ReactNode {
+export function P2PFooterAction({ wide, gateSnapshot, t }: P2PFooterProps): ReactNode {
   const open = useSyncExternalStore(subscribePanel, isPanelOpen)
   const [pending, setPending] = useState(0)
 
@@ -41,7 +41,7 @@ export function P2PFooterAction({ wide, gateSnapshot }: P2PFooterProps): ReactNo
       }}
     >
       <span>👥</span>
-      {wide ? <span>协作</span> : null}
+      {wide ? <span>{t('footer.label')}</span> : null}
       {pending > 0 ? <span style={{ background: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-label-primary-inverted)', borderRadius: 9, padding: '0 6px', fontSize: 11 }}>{pending}</span> : null}
     </button>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { Config, DebugSnapshot, ManualPeer, NodeStatus, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
 
 /** Registration-side data the settings section needs. */
@@ -14,7 +14,7 @@ export interface P2PSettingsInjected {
 }
 
 /** Full component props assembled by the settings shell renderer. */
-export type P2PSettingsProps = PropsRuntime<'settings.section'> & InjectFace<P2PSettingsInjected>
+export type P2PSettingsProps = PropsRuntime<'settings.section'> & InjectFace<P2PSettingsInjected> & PropsLocale<'p2p'>
 
 const row: React.CSSProperties = {
   display: 'flex', gap: 8, alignItems: 'center',
@@ -34,7 +34,7 @@ function splitTags(value: string): string[] {
 
 /** Settings section: full node config (identity, discovery, reply engine) + project table. */
 export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
-  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot } = props
+  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot, t } = props
   const [config, setConfigState] = useState<Config | null>(null)
   const [status, setStatus] = useState<NodeStatus | null>(null)
   const [debugSnap, setDebugSnap] = useState<DebugSnapshot | null>(null)
@@ -69,14 +69,14 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
   }
   const save = (): void => {
     if (config === null) return
-    setSaved('保存中…')
+    setSaved(t('settings.saving'))
     void setConfig(config).then(() => {
-      setSaved('已保存')
+      setSaved(t('settings.saved'))
       // The node may have re-bound on a different port; refresh the runtime status.
       getNodeStatus().then(setStatus, () => {})
       setTimeout(() => setSaved(null), 2000)
     }, () => {
-      setSaved('保存失败')
+      setSaved(t('settings.saveFailed'))
     })
   }
 
@@ -99,93 +99,93 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
     setImportMessage(null)
     importWorkspaces().then((result) => {
       setImportMessage(result.ok
-        ? (result.added === 0 ? '没有新的工作区可导入' : `已导入 ${result.added} 个工作区`)
-        : '工作区不可用')
+        ? (result.added === 0 ? t('settings.noneToImport') : t('settings.imported', { count: result.added }))
+        : t('settings.workspacesUnavailable'))
       return getProjects()
     }).then((list) => {
       setProjectsState(list)
       setLoaded(true)
     }).catch(() => {
-      setImportMessage('导入失败')
+      setImportMessage(t('settings.importFailed'))
     }).finally(() => {
       setImporting(false)
     })
   }
 
   if (!loaded) {
-    return <div style={{ padding: 16 }}><p style={hint}>加载中…</p></div>
+    return <div style={{ padding: 16 }}><p style={hint}>{t('settings.loading')}</p></div>
   }
   if (config === null) {
-    return <div style={{ padding: 16 }}><p style={hint}>配置不可用</p></div>
+    return <div style={{ padding: 16 }}><p style={hint}>{t('settings.configUnavailable')}</p></div>
   }
 
   const capabilitiesText = config.capabilities.join(', ')
 
   return (
     <div style={{ padding: 16, maxWidth: 640 }}>
-      <h2 style={{ fontSize: 16, margin: 0 }}>协作</h2>
+      <h2 style={{ fontSize: 16, margin: 0 }}>{t('settings.sectionLabel')}</h2>
       <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', marginTop: 2 }}>
-        插件版本 {debugSnap?.version ?? '…'}
+        {t('settings.version', { version: debugSnap?.version ?? '…' })}
         {debugSnap?.started === true
-          ? ` · 监听 ${debugSnap.effectivePort}`
-          : ' · 未运行'}
+          ? t('settings.sep') + t('settings.listening', { port: debugSnap.effectivePort })
+          : t('settings.sep') + t('settings.notRunning')}
       </div>
 
-      <div style={label}>节点名称</div>
+      <div style={label}>{t('settings.nodeName')}</div>
       <input
         value={config.nodeName}
         style={{ ...input, width: '100%', marginTop: 4, boxSizing: 'border-box' }}
         onChange={(event) => { patch({ nodeName: event.currentTarget.value }) }}
       />
-      <div style={hint}>全网唯一；改名会重建节点身份（进程不重启，但收件箱/发件箱会重置）。</div>
+      <div style={hint}>{t('settings.nodeNameHint')}</div>
 
-      <div style={label}>对外宣告 IP（可选）</div>
+      <div style={label}>{t('settings.advertisedHost')}</div>
       <input
         value={config.advertisedHost}
         style={{ ...input, width: '100%', marginTop: 4, boxSizing: 'border-box' }}
-        placeholder="留空 = 自动检测局域网地址"
+        placeholder={t('settings.advertisedHostPlaceholder')}
         onChange={(event) => { patch({ advertisedHost: event.currentTarget.value.trim() }) }}
       />
-      <div style={hint}>广播给同事的连接地址，只影响别人连你。WSL2 里跑 dsh 时填 Windows 主机的局域网 IP（如 10.0.0.8），配合端口转发让同事能连进来；留空则自动检测。</div>
+      <div style={hint}>{t('settings.advertisedHostHint')}</div>
 
-      <div style={label}>能力标签（逗号分隔）</div>
+      <div style={label}>{t('settings.capabilities')}</div>
       <input
         value={capabilitiesText}
         style={{ ...input, width: '100%', marginTop: 4, boxSizing: 'border-box' }}
-        placeholder="rpc, export"
+        placeholder={t('settings.capabilitiesPlaceholder')}
         onChange={(event) => { patch({ capabilities: splitTags(event.currentTarget.value) }) }}
       />
-      <div style={hint}>供同事用「按能力路由」找到本机。</div>
+      <div style={hint}>{t('settings.capabilitiesHint')}</div>
 
-      <div style={label}>自动发现（UDP 组播）</div>
+      <div style={label}>{t('settings.autoDiscover')}</div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4 }}>
         <input
           type="checkbox"
           checked={config.autoDiscover}
           onChange={() => { patch({ autoDiscover: !config.autoDiscover }) }}
         />
-        开启（组播被禁的环境请关闭并用下面的手动节点）
+        {t('settings.autoDiscoverLabel')}
       </label>
 
-      <div style={label}>手动节点（组播被禁时的 fallback）</div>
+      <div style={label}>{t('settings.manualPeers')}</div>
       {config.manualPeers.map((peer, index) => (
         <div key={index} style={row}>
           <input
             value={peer.name}
-            placeholder="名称"
+            placeholder={t('settings.manualName')}
             style={{ ...input, flex: 1 }}
             onChange={(event) => { patchManualPeer(index, { name: event.currentTarget.value }) }}
           />
           <input
             value={peer.host}
-            placeholder="host"
+            placeholder={t('settings.manualHost')}
             style={{ ...input, flex: 2 }}
             onChange={(event) => { patchManualPeer(index, { host: event.currentTarget.value }) }}
           />
           <input
             value={peer.port}
             type="number"
-            placeholder="port"
+            placeholder={t('settings.manualPort')}
             style={{ ...input, width: 90 }}
             onChange={(event) => { patchManualPeer(index, { port: Number(event.currentTarget.value) || 0 }) }}
           />
@@ -194,7 +194,7 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
             style={{ ...input, cursor: 'pointer', color: 'var(--dsw-alias-state-error-primary)' }}
             onClick={() => { patch({ manualPeers: config.manualPeers.filter((_, i) => i !== index) }) }}
           >
-            删除
+            {t('settings.remove')}
           </button>
         </div>
       ))}
@@ -203,10 +203,10 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         style={{ ...input, cursor: 'pointer', marginTop: 8 }}
         onClick={() => { patch({ manualPeers: [...config.manualPeers, { name: '', host: '', port: 53420 }] }) }}
       >
-        ＋ 添加手动节点
+        {t('settings.addManualPeer')}
       </button>
 
-      <div style={label}>传输端口</div>
+      <div style={label}>{t('settings.port')}</div>
       <input
         value={config.port}
         type="number"
@@ -215,26 +215,26 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
       />
       {status !== null && status.effectivePort !== config.port ? (
         <div style={{ ...hint, color: 'var(--dsw-alias-state-warning-primary, #e6a23c)' }}>
-          请求的 {config.port} 被占用，当前实际监听 <strong>{status.effectivePort}</strong>（将广播给局域网同事）。
+          {t('settings.portBusy', { requested: config.port, effective: status.effectivePort })}
         </div>
       ) : null}
       {status !== null && status.effectivePort === config.port ? (
-        <div style={hint}>当前实际监听 {status.effectivePort}；端口被占用时插件会自动顺延到下一个空闲端口（自己刚释放的端口会被等待回收，不会漂移）。</div>
+        <div style={hint}>{t('settings.portOk', { effective: status.effectivePort })}</div>
       ) : null}
-      <div style={hint}>改端口会重启 WebSocket server（进程不重启）。</div>
+      <div style={hint}>{t('settings.portHintRebind')}</div>
 
-      <div style={label}>自动回复把关灵敏度</div>
+      <div style={label}>{t('settings.sensitivity')}</div>
       <select
         value={config.sensitivity}
         style={{ ...input, marginTop: 4 }}
         onChange={(event) => { patch({ sensitivity: event.currentTarget.value as Config['sensitivity'] }) }}
       >
-        <option value="lenient">宽松（拿不准就自动回复）</option>
-        <option value="standard">标准（正式/有风险才转人工）</option>
-        <option value="strict">严格（一律转人工把关）</option>
+        <option value="lenient">{t('settings.sensitivityLenient')}</option>
+        <option value="standard">{t('settings.sensitivityStandard')}</option>
+        <option value="strict">{t('settings.sensitivityStrict')}</option>
       </select>
 
-      <div style={label}>同步等待回复超时（毫秒）</div>
+      <div style={label}>{t('settings.sendWaitTimeout')}</div>
       <input
         value={config.sendWaitTimeoutMs}
         type="number"
@@ -242,66 +242,77 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         onChange={(event) => { patch({ sendWaitTimeoutMs: Number(event.currentTarget.value) || 300000 }) }}
       />
 
-      <div style={label}>LLM 路由（自动回复/把关用）</div>
+      <div style={label}>{t('settings.llmRoute')}</div>
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <input
           value={config.provider}
-          placeholder="provider"
+          placeholder={t('settings.providerPlaceholder')}
           style={{ ...input, flex: 1 }}
           onChange={(event) => { patch({ provider: event.currentTarget.value }) }}
         />
         <input
           value={config.model}
-          placeholder="model"
+          placeholder={t('settings.modelPlaceholder')}
           style={{ ...input, flex: 1 }}
           onChange={(event) => { patch({ model: event.currentTarget.value }) }}
         />
       </div>
-      <div style={hint}>provider / model 留空 = 所有来信一律转人工把关（不自动回复）。</div>
+      <div style={hint}>{t('settings.llmRouteHint')}</div>
 
-      <div style={label}>回复角色提示（persona）</div>
+      <div style={label}>{t('settings.persona')}</div>
       <input
         value={config.persona}
         style={{ ...input, width: '100%', marginTop: 4, boxSizing: 'border-box' }}
-        placeholder="例如：后端开发"
+        placeholder={t('settings.personaPlaceholder')}
         onChange={(event) => { patch({ persona: event.currentTarget.value }) }}
       />
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
-        <button type="button" style={{ ...input, cursor: 'pointer', background: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-label-primary-inverted)' }} onClick={save}>保存节点配置</button>
+        <button type="button" style={{ ...input, cursor: 'pointer', background: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-label-primary-inverted)' }} onClick={save}>{t('settings.save')}</button>
         {saved !== null ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{saved}</span> : null}
       </div>
 
-      <div style={label}>调试模式</div>
+      <div style={label}>{t('settings.debug')}</div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4 }}>
         <input
           type="checkbox"
           checked={config.debug}
           onChange={() => { patch({ debug: !config.debug }) }}
         />
-        开启后显示连接 JSON 串与运行数据（下方调试区）
+        {t('settings.debugLabel')}
       </label>
 
       {config.debug && debugSnap !== null ? (
         <div style={row}>
           <div style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
             <div style={{ marginBottom: 4 }}>
-              节点 {debugSnap.nodeName}（{debugSnap.version}）·
-              宣告 {debugSnap.advertisedHost || '(自动)'} · 监听 {debugSnap.effectivePort}（请求 {debugSnap.requestedPort}）
+              {t('settings.debugSummary', {
+                nodeName: debugSnap.nodeName,
+                version: debugSnap.version,
+                advertisedHost: debugSnap.advertisedHost || '(auto)',
+                effective: debugSnap.effectivePort,
+                requested: debugSnap.requestedPort,
+              })}
             </div>
             <div style={{ marginBottom: 4 }}>
-              peers {debugSnap.peers.length} · outbox {debugSnap.outboxCount} · inbox {debugSnap.inboxCount} ·
-              gates {debugSnap.gateCount} · pending {debugSnap.pendingWaits} ·
-              连接 出{debugSnap.outboundConnections}/入{debugSnap.inboundConnections}
+              {t('settings.debugCounts', {
+                peers: debugSnap.peers.length,
+                outbox: debugSnap.outboxCount,
+                inbox: debugSnap.inboxCount,
+                gates: debugSnap.gateCount,
+                pending: debugSnap.pendingWaits,
+                outbound: debugSnap.outboundConnections,
+                inbound: debugSnap.inboundConnections,
+              })}
             </div>
-            <button type="button" style={{ ...input, cursor: 'pointer', marginBottom: 6 }} onClick={refreshDebug}>刷新调试数据</button>
+            <button type="button" style={{ ...input, cursor: 'pointer', marginBottom: 6 }} onClick={refreshDebug}>{t('settings.refreshDebug')}</button>
             {debugSnap.peers.length > 0 ? (
               <pre style={{ margin: '4px 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--dsw-alias-label-secondary)' }}>
 {debugSnap.peers.map(p => `${p.name} (${p.host}:${p.port}) [${p.capabilities.join(',') || 'no caps'}]`).join('\n')}
               </pre>
             ) : null}
             {debugSnap.frames.length === 0 ? (
-              <div style={hint}>暂无连接帧（发/收消息后这里会出现原始 JSON）。</div>
+              <div style={hint}>{t('settings.debugNoFrames')}</div>
             ) : (
               <pre style={{ margin: '4px 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 260, overflow: 'auto', color: 'var(--dsw-alias-label-secondary)' }}>
 {debugSnap.frames.slice(0, 20).map(f => `${f.dir === 'in' ? '◀' : '▶'} ${new Date(f.ts).toISOString().slice(11, 23)} ${f.json}`).join('\n')}
@@ -313,24 +324,24 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
 
       <hr style={{ border: 'none', borderTop: '1px solid var(--dsw-alias-border-l1)', margin: '16px 0' }} />
 
-      <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>协作项目</h2>
+      <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>{t('settings.projectsTitle')}</h2>
       <p style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', margin: '0 0 8px' }}>
-        管理本机可接收需求的项目目录。只有「广播」打开的项目名会展示给同事，绝对路径永不外泄。
+        {t('settings.projectsHint')}
       </p>
       {projects.length === 0
-        ? <p style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>暂无项目</p>
+        ? <p style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>{t('settings.noProjects')}</p>
         : null}
       {projects.map((project, index) => (
         <div key={index} style={row}>
           <input
             value={project.name}
-            placeholder="项目名（如 backend-api 或 羽毛球）"
+            placeholder={t('settings.projectNamePlaceholder')}
             style={{ ...input, flex: 1 }}
             onChange={(event) => { patchProject(index, { name: event.currentTarget.value }) }}
           />
           <input
             value={project.path}
-            placeholder="/绝对/路径"
+            placeholder={t('settings.projectPathPlaceholder')}
             style={{ ...input, flex: 2 }}
             onChange={(event) => { patchProject(index, { path: event.currentTarget.value }) }}
           />
@@ -340,14 +351,14 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
               checked={project.broadcast}
               onChange={() => { patchProject(index, { broadcast: !project.broadcast }) }}
             />
-            广播
+            {t('settings.broadcast')}
           </label>
           <button
             type="button"
             style={{ ...input, cursor: 'pointer', color: 'var(--dsw-alias-state-error-primary)' }}
             onClick={() => { saveProjects(projects.filter((_, i) => i !== index)) }}
           >
-            删除
+            {t('settings.remove')}
           </button>
         </div>
       ))}
@@ -357,7 +368,7 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
           style={{ ...input, cursor: 'pointer' }}
           onClick={() => { saveProjects([...projects, { name: '', path: '', broadcast: false }]) }}
         >
-          ＋ 添加项目
+          {t('settings.addProject')}
         </button>
         <button
           type="button"
@@ -365,7 +376,7 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
           disabled={importing}
           onClick={importFromWorkspaces}
         >
-          {importing ? '导入中…' : '从工作区导入'}
+          {importing ? t('settings.importing') : t('settings.importWorkspaces')}
         </button>
         {importMessage !== null
           ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{importMessage}</span>

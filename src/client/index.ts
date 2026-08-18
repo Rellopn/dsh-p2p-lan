@@ -5,9 +5,12 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (settings.section).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the ctx.locale browser registry into scope.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 // The generated Remote contribution: self-mounted so a standalone plugin does not
 // depend on api-remotes hard-coding its namespace.
 import p2pRemote from '@rellopn/dsh-p2p-lan/remote'
+import { en, zh } from './i18n.ts'
 import { P2PFooterAction, type P2PFooterInjected } from './P2PFooterAction.tsx'
 import { P2POverlay, type P2POverlayInjected } from './P2POverlay.tsx'
 import { P2PSettingsSection, type P2PSettingsInjected } from './P2PSettingsSection.tsx'
@@ -22,6 +25,9 @@ export const inject = ['slots', 'remote']
  */
 export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(p2pRemote)
+  // Register the bilingual (zh/en) dictionaries; the slot registrations below
+  // declare `locale: 'p2p'`, which injects the typed `t` seat into the panels.
+  ctx.effect(() => ctx.locale.register('p2p', { zh, en }), 'p2p-lan: dictionaries')
   // The mounted namespace lives in a sibling fiber, so the Cordis context proxy
   // cannot resolve `ctx.remote.p2p` without an inject edge (the namespace does
   // not exist until this very apply runs). Read it from the reflect store.
@@ -85,15 +91,19 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     return result.value
   }
 
+  const sectionLabel = ctx.locale.bind('p2p')
+
   ctx.slots.register({
     name: 'sidebar.footer.action',
     id: 'p2p',
+    locale: 'p2p',
     inject: (): P2PFooterInjected => ({ gateSnapshot }),
   }, P2PFooterAction)
 
   ctx.slots.register({
     name: 'shell.overlay',
     id: 'p2p',
+    locale: 'p2p',
     inject: (): P2POverlayInjected => ({ gateSnapshot, peers, inboxSnapshot, approveGate, rejectGate }),
   }, P2POverlay)
 
@@ -103,7 +113,8 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     name: 'settings.section',
     id: 'p2p',
     order: 100,
-    label: () => '协作',
+    label: () => sectionLabel('settings.sectionLabel'),
+    locale: 'p2p',
     inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot }),
   }, P2PSettingsSection)
 

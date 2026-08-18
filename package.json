@@ -1,7 +1,7 @@
 {
   "name": "@rellopn/dsh-p2p-lan",
   "description": "LAN P2P AI-to-AI collaboration messaging (host node + browser gate panel)",
-  "version": "0.1.0-rc.17",
+  "version": "0.1.0-rc.18",
   "packageManager": "pnpm@11.7.0",
   "publishConfig": {
     "access": "public"
@@ -64,6 +64,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
@@ -80,6 +81,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
