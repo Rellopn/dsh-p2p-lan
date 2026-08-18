@@ -60,7 +60,7 @@ export function detectLanAddress(): string | undefined {
 export class Discovery extends EventEmitter {
   private readonly identity: NodeIdentity
   private capabilities: string[]
-  private readonly host: string
+  private host: string
   private port: number
   private readonly autoDiscover: boolean
   private readonly manualPeers: ManualPeer[]
@@ -142,6 +142,15 @@ export class Discovery extends EventEmitter {
    */
   setAdvertisedPort(port: number): void {
     this.port = port
+  }
+
+  /**
+   * Override the host peers are told to connect to (e.g. a WSL node behind a
+   * Windows port-forward should advertise the Windows host's LAN IP). Used by
+   * live settings edits; no restart needed.
+   */
+  setAdvertisedHost(host: string): void {
+    this.host = host
   }
 
   /** Replace the announced capability tags (used by live settings edits). */

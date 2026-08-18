@@ -13,6 +13,8 @@ describe('config', () => {
     expect(config.port).toBe(DEFAULT_PORT)
     // An empty name means "auto-generate at mount time" (hostname + random).
     expect(config.nodeName).toBe('')
+    // An empty advertised host means "auto-detect the LAN address".
+    expect(config.advertisedHost).toBe('')
   })
 
   it('merges partial config over defaults', () => {
@@ -20,6 +22,11 @@ describe('config', () => {
     expect(config.nodeName).toBe('B')
     expect(config.capabilities).toEqual(['rpc'])
     expect(config.port).toBe(DEFAULT_PORT)
+    expect(config.advertisedHost).toBe('')
+  })
+
+  it('passes an explicit advertisedHost through', () => {
+    expect(resolveConfig({ advertisedHost: '10.0.0.8' }).advertisedHost).toBe('10.0.0.8')
   })
 
   it('keeps defaults untouched', () => {

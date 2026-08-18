@@ -35,6 +35,7 @@ export const inject = ['tools', 'llm']
 /** Plugin configuration schema (defaults apply at mount time). The `Config` type lives in ./types.ts. */
 export const Config: z<ConfigModel> = z.object({
   nodeName: z.string().default(''),
+  advertisedHost: z.string().default(''),
   capabilities: z.array(z.string()).default([]),
   autoDiscover: z.boolean().default(true),
   manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })).default([]),
@@ -54,6 +55,7 @@ export const Config: z<ConfigModel> = z.object({
 /** Settings schema: the full config, editable + persisted from the browser settings panel. */
 export const SettingsSchema: z<ConfigModel> = z.object({
   nodeName: z.string(),
+  advertisedHost: z.string(),
   capabilities: z.array(z.string()),
   autoDiscover: z.boolean(),
   manualPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })),
@@ -137,7 +139,7 @@ export class P2PService extends TypertRemoteService {
     const projects = normalizeProjects(config.projects)
     const broadcastProjects = projects.filter(entry => entry.broadcast).map(entry => entry.name)
     this.identity = createIdentity(config.nodeName)
-    this.lanHost = detectLanAddress() ?? '127.0.0.1'
+    this.lanHost = this.resolveAdvertisedHost(config)
     this.transport = new Transport({ port: config.port })
     this.discovery = new Discovery({
       identity: this.identity,
@@ -174,6 +176,17 @@ export class P2PService extends TypertRemoteService {
     this.discovery.on('peer-online', () => {
       void this.store.flush()
     })
+  }
+
+  /**
+   * The host this node advertises to peers: an explicit `advertisedHost`
+   * (e.g. a WSL node behind a Windows port-forward exposing the host's LAN IP)
+   * wins; otherwise the detected LAN address is used.
+   */
+  private resolveAdvertisedHost(config: Config): string {
+    const override = config.advertisedHost.trim()
+    if (override !== '') return override
+    return detectLanAddress() ?? '127.0.0.1'
   }
 
   /** Bind the WebSocket server, then point discovery at the port actually used. */
@@ -237,6 +250,8 @@ export class P2PService extends TypertRemoteService {
     })
     this.discovery.setCapabilities(next.capabilities)
     this.discovery.setManualPeers(next.manualPeers)
+    this.lanHost = this.resolveAdvertisedHost(next)
+    this.discovery.setAdvertisedHost(this.lanHost)
     this.agent.setSendWaitTimeoutMs(next.sendWaitTimeoutMs)
     this.discovery.setProjects(broadcastProjects)
     this.agent.setProjects(valid)

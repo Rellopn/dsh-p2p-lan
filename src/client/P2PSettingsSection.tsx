@@ -126,6 +126,15 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
       />
       <div style={hint}>全网唯一；改名会重建节点身份（进程不重启，但收件箱/发件箱会重置）。</div>
 
+      <div style={label}>对外宣告 IP（可选）</div>
+      <input
+        value={config.advertisedHost}
+        style={{ ...input, width: '100%', marginTop: 4, boxSizing: 'border-box' }}
+        placeholder="留空 = 自动检测局域网地址"
+        onChange={(event) => { patch({ advertisedHost: event.currentTarget.value.trim() }) }}
+      />
+      <div style={hint}>广播给同事的连接地址，只影响别人连你。WSL2 里跑 dsh 时填 Windows 主机的局域网 IP（如 10.0.0.8），配合端口转发让同事能连进来；留空则自动检测。</div>
+
       <div style={label}>能力标签（逗号分隔）</div>
       <input
         value={capabilitiesText}

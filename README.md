@@ -54,6 +54,7 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | Key | Default | Meaning |
 |---|---|---|
 | `nodeName` | `''` (auto) | LAN-unique node name; empty generates `hostname-<4 random>` once and persists it (duplicates are rejected) |
+| `advertisedHost` | `''` (auto) | Host advertised to peers; empty auto-detects the LAN address. WSL2: set your Windows host's LAN IP when exposing the node via a port-forward |
 | `capabilities` | `[]` | Capability tags for `send_to_capability` routing |
 | `autoDiscover` | `true` | UDP multicast discovery |
 | `manualPeers` | `[]` | `[{ name, host, port }]` fallback when multicast is blocked |

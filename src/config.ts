@@ -19,6 +19,8 @@ const PROJECT_NAME = /^[^\s/\\\u0000-\u0008\u000e-\u001f]+$/
 /** P2P collaboration configuration. */
 export interface Config {
   nodeName: string
+  /** Host advertised to peers; empty = auto-detect the LAN address. */
+  advertisedHost: string
   capabilities: string[]
   autoDiscover: boolean
   manualPeers: ManualPeer[]
@@ -82,6 +84,7 @@ export function resolveNodeName(name: string | undefined): string {
 /** Default configuration. */
 export const defaultConfig: Config = {
   nodeName: '',
+  advertisedHost: '',
   capabilities: [],
   autoDiscover: true,
   manualPeers: [],

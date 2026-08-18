@@ -130,6 +130,8 @@ export type Sensitivity = 'lenient' | 'standard' | 'strict'
 /** The full editable P2P node configuration (the settings-panel shape). */
 export interface Config {
   nodeName: string
+  /** Host advertised to peers; empty = auto-detect the LAN address (WSL: set your Windows host's LAN IP when port-forwarding). */
+  advertisedHost: string
   capabilities: string[]
   autoDiscover: boolean
   manualPeers: ManualPeer[]
