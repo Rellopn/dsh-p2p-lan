@@ -141,6 +141,21 @@ pnpm pack      # produce the .tgz consumed by dsh plugin add / npm publish
 
 To publish under the `@rellopn` scope: `pnpm build` → `pnpm pack` → `npm publish`.
 
+## Upgrading / hot-reload semantics
+
+dsh loads plugins dynamically, but "dynamic" has a precise boundary:
+
+- **Config changes** (settings panel, or editing the profile's `cordis.patch.yml`)
+  are hot-applied through Cordis HMR — no restart. The plugin's own
+  `applyConfig` also live-updates the node core for heavy fields.
+- **Adding/removing a plugin row** in `cordis.patch.yml` is also hot — the
+  Loader mounts/unmounts the entry at runtime.
+- **Upgrading the plugin package** (`dsh plugin add <new .tgz>`) replaces the
+  files in `node_modules`, but Node caches already-imported ESM modules in the
+  process, so the new host code only loads on the next `dsh` start. The browser
+  client is fetched per page load, so a refresh is enough there. In short:
+  **restart the dsh host process + refresh the browser tab** after upgrading.
+
 > **Note:** `lib/typert.host.js`, `lib/typert.remote-client.js`, and `lib/typert.remote-client.d.ts` are checked-in generated artifacts. The upstream Typert generator cannot resolve `@Remote` in this repo (the protocol package is an external dependency), so after adding/removing `@Remote` methods in `src/plugin.ts`, sync those three files by hand (see `scripts/gen-typert.mjs`).
 
 See [AGENTS.md](AGENTS.md) for the full repository guide for AI coding assistants.
