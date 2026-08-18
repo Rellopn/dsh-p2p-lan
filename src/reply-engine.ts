@@ -2,9 +2,13 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { BlockAssembler, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { appendDiagLog } from './diag-log.ts'
 import type { ReplyEngine } from './agent.ts'
 import type { Sensitivity } from './config.ts'
 import type { Envelope } from './messages.ts'
+
+/** How long one draft may take before degrading to the human gate (LLM gateway stalls must not hang inbound routing). */
+export const DRAFT_TIMEOUT_MS = 30_000
 
 export interface LlmReplyEngineOptions {
   provider: string
@@ -71,38 +75,53 @@ export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOption
   return {
     async draftReply(envelope) {
       const { provider, model, sensitivity, persona, nodeName, projects } = current
+      const started = Date.now()
+      appendDiagLog('info', `draft ${envelope.id}: start provider=${provider || '(none)'} model=${model || '(none)'} sensitivity=${sensitivity}`)
       if (sensitivity === 'strict' || provider === '' || model === '') {
+        appendDiagLog('warn', `draft ${envelope.id}: gate (strict / empty route)`)
         return { needsGate: true, body: '' }
       }
       const system = systemPrompt(persona, sensitivity, nodeName, projects)
       try {
-        const user = createUserMessage({
-          content: [{ type: 'text', text: frame(envelope) }],
-          source: { kind: 'plugin', plugin: 'dsh-p2p-lan' },
-        })
-        const assembler = new BlockAssembler()
-        for await (const chunk of ctx.llm.stream({
-          provider,
-          model,
-          messages: [user],
-          system,
-          maxTokens: 1024,
-          // Drafting is a small JSON decision ({"needsGate", "body"}); disable
-          // thinking so a reasoning model does not spend the whole token budget
-          // on chain-of-thought and end with an empty content block (the adapter
-          // reports that as EMPTY_RESPONSE -> gate, not auto-reply).
-          reasoningEffort: ReasoningEffortId('off'),
-        })) {
-          assembler.push(chunk)
+        // Collect the stream with a hard timeout: a stalled LLM gateway must
+        // degrade to the human gate instead of hanging inbound routing forever
+        // (which previously left messages inbox-only with no approval UI).
+        const assembler = await withTimeout(async () => {
+          const user = createUserMessage({
+            content: [{ type: 'text', text: frame(envelope) }],
+            source: { kind: 'plugin', plugin: 'dsh-p2p-lan' },
+          })
+          const collect = new BlockAssembler()
+          for await (const chunk of ctx.llm.stream({
+            provider,
+            model,
+            messages: [user],
+            system,
+            maxTokens: 1024,
+            // Drafting is a small JSON decision ({"needsGate", "body"}); disable
+            // thinking so a reasoning model does not spend the whole token budget
+            // on chain-of-thought and end with an empty content block (the adapter
+            // reports that as EMPTY_RESPONSE -> gate, not auto-reply).
+            reasoningEffort: ReasoningEffortId('off'),
+          })) {
+            collect.push(chunk)
+          }
+          return collect
+        }, DRAFT_TIMEOUT_MS)
+        if (assembler.finish.kind !== 'stop') {
+          appendDiagLog('warn', `draft ${envelope.id}: finish=${assembler.finish.kind} -> gate`)
+          return { needsGate: true, body: '' }
         }
-        if (assembler.finish.kind !== 'stop') return { needsGate: true, body: '' }
         const blocks = assembler.blocks()
         const text = blocks
           .filter((block): block is Extract<(typeof blocks)[number], { type: 'text' }> => block.type === 'text')
           .map(block => block.text)
           .join('')
-        return parseDraft(text)
-      } catch {
+        const draft = parseDraft(text)
+        appendDiagLog('info', `draft ${envelope.id}: done in ${Date.now() - started}ms needsGate=${draft.needsGate} bodyLen=${draft.body.length}`)
+        return draft
+      } catch (error) {
+        appendDiagLog('error', `draft ${envelope.id}: FAILED after ${Date.now() - started}ms (${error instanceof Error ? error.message : String(error)}) -> gate`)
         return { needsGate: true, body: '' }
       }
     },
@@ -110,4 +129,15 @@ export function createLlmReplyEngine(ctx: Context, options: LlmReplyEngineOption
       current = { ...current, ...next }
     },
   }
+}
+
+/** Race a promise against a timeout; rejects when the deadline passes. */
+function withTimeout<T>(run: () => Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`draft timeout after ${ms}ms`)), ms)
+    run().then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error) },
+    )
+  })
 }
