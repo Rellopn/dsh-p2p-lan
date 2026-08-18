@@ -142,6 +142,8 @@ export interface Config {
   model: string
   persona: string
   projects: ProjectEntry[]
+  /** When true the settings panel shows raw wire JSON frames and runtime snapshots. */
+  debug: boolean
 }
 
 /** Runtime listener status (as opposed to the requested config). */
@@ -154,4 +156,37 @@ export interface NodeStatus {
   effectivePort: number
   /** Whether transport + discovery are currently running. */
   started: boolean
+}
+
+/** One recorded raw wire frame (debug mode). */
+export interface WireFrame {
+  /** `in` = received from a peer, `out` = sent to a peer. */
+  dir: 'in' | 'out'
+  /** Epoch ms. */
+  ts: number
+  /** The raw wire JSON (`{type:'envelope'|'ack',...}`). */
+  json: string
+}
+
+/** Debug-mode snapshot: version + live runtime data. */
+export interface DebugSnapshot {
+  /** Plugin version read from the installed package.json. */
+  version: string
+  /** Whether the debug config flag is on (the panel shows this section only then). */
+  debug: boolean
+  nodeName: string
+  advertisedHost: string
+  requestedPort: number
+  effectivePort: number
+  started: boolean
+  /** Most recent wire frames, newest first. */
+  frames: WireFrame[]
+  /** Discovery directory (excluding self). */
+  peers: PeerInfo[]
+  outboxCount: number
+  inboxCount: number
+  gateCount: number
+  pendingWaits: number
+  outboundConnections: number
+  inboundConnections: number
 }

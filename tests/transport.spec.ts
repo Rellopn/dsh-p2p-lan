@@ -162,6 +162,25 @@ describe('transport', () => {
     expect(b.effectivePort()).toBe(12030)
     await b.stop()
   })
+
+  it('records raw wire frames for the debug snapshot', async () => {
+    const a = new Transport({ port: 12040 })
+    const b = new Transport({ port: 12041 })
+    await a.start()
+    await b.start()
+    try {
+      await a.send({ host: '127.0.0.1', port: 12041 }, envelope('dbg1'))
+      await waitFor(() => a.debugFrames().length >= 2 && b.debugFrames().length >= 1)
+      const sent = a.debugFrames().find(f => f.dir === 'out')
+      const received = b.debugFrames().find(f => f.dir === 'in')
+      expect(sent?.json).toContain('dbg1')
+      expect(received?.json).toContain('dbg1')
+      expect(sent?.dir).toBe('out')
+    } finally {
+      await a.stop()
+      await b.stop()
+    }
+  })
 })
 
 function sleep(ms: number): Promise<void> {

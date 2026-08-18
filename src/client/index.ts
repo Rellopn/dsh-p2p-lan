@@ -74,6 +74,11 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  const getDebugSnapshot: P2PSettingsInjected['getDebugSnapshot'] = async () => {
+    const result = await p2p.debugSnapshot()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
   const importWorkspaces: P2PSettingsInjected['importWorkspaces'] = async () => {
     const result = await p2p.importWorkspaces()
     if (!result.ok) throw new Error(result.error.message)
@@ -99,7 +104,7 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     id: 'p2p',
     order: 100,
     label: () => '协作',
-    inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus }),
+    inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot }),
   }, P2PSettingsSection)
 
   return disposeRemote

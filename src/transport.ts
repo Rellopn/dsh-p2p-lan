@@ -5,6 +5,7 @@ import { createServer, type Server } from 'node:http'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
 import { DEFAULT_PORT_RETRIES } from './config.ts'
 import { validateEnvelope, type Envelope } from './messages.ts'
+import type { WireFrame } from './types.ts'
 
 /** A remote transport address. */
 export interface PeerAddress {
@@ -35,6 +36,8 @@ export const DEFAULT_MAX_RETRIES = 5
 export const DEFAULT_RETRY_BASE_DELAY_MS = 250
 /** How long a briefly-occupied requested port is worth waiting for (hot-reload reuse). */
 export const DEFAULT_PORT_RETRY_DELAY_MS = 300
+/** Latest wire frames kept for the debug snapshot (never grows unbounded). */
+export const MAX_DEBUG_FRAMES = 100
 
 interface PendingAck {
   resolve: () => void
@@ -64,6 +67,8 @@ export class Transport extends EventEmitter {
   private readonly seen = new Set<string>()
   private readonly clients = new Map<string, WebSocket>()
   private readonly pending = new Map<string, PendingAck>()
+  /** Most recent raw wire frames (newest first), for the debug snapshot. */
+  private readonly frames: WireFrame[] = []
 
   constructor(options: TransportOptions) {
     super()
@@ -253,17 +258,21 @@ export class Transport extends EventEmitter {
         reject(new Error('ack timeout'))
       }, this.ackTimeoutMs)
       this.pending.set(envelope.id, { resolve, reject, timer, socket })
-      socket.send(encode({ type: 'envelope', envelope }))
+      const wire = encode({ type: 'envelope', envelope })
+      this.recordFrame('out', wire)
+      socket.send(wire)
     })
   }
 
   private handleMessage(socket: WebSocket, data: RawData): void {
+    const raw = data.toString('utf8')
     let msg: WireMessage
     try {
-      msg = JSON.parse(data.toString('utf8')) as WireMessage
+      msg = JSON.parse(raw) as WireMessage
     } catch {
       return
     }
+    this.recordFrame('in', raw)
 
     if (msg.type === 'ack') {
       const pending = this.pending.get(msg.id)
@@ -295,6 +304,24 @@ export class Transport extends EventEmitter {
         pending.reject(new Error('socket closed before ack'))
       }
     }
+  }
+
+  /** Recent raw wire frames, newest first (capped at MAX_DEBUG_FRAMES). */
+  debugFrames(): WireFrame[] {
+    return [...this.frames]
+  }
+
+  /** Live connection counts for the debug snapshot. */
+  connectionSnapshot(): { outbound: number; inbound: number } {
+    return {
+      outbound: this.clients.size,
+      inbound: this.server?.clients.size ?? 0,
+    }
+  }
+
+  private recordFrame(dir: WireFrame['dir'], json: string): void {
+    this.frames.unshift({ dir, ts: Date.now(), json })
+    if (this.frames.length > MAX_DEBUG_FRAMES) this.frames.length = MAX_DEBUG_FRAMES
   }
 }
 

@@ -3,7 +3,7 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { Config, Envelope, GateItem, NodeStatus, PeerInfo, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
+import type { Config, DebugSnapshot, Envelope, GateItem, NodeStatus, PeerInfo, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$703270 {
@@ -15,6 +15,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getConfig: () => Promise<RemoteResult<Config>>
     importWorkspaces: () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     nodeStatus: () => Promise<RemoteResult<NodeStatus>>
+    debugSnapshot: () => Promise<RemoteResult<DebugSnapshot>>
     peers: () => Promise<RemoteResult<PeerInfo[]>>
     rejectGate: (id: string) => Promise<RemoteResult<{ ok: boolean; }>>
     setProjects: (projects: ProjectEntry[]) => Promise<RemoteResult<{ ok: boolean; }>>
@@ -29,6 +30,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'p2p/getConfig': () => Promise<RemoteResult<Config>>
     'p2p/importWorkspaces': () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     'p2p/nodeStatus': () => Promise<RemoteResult<NodeStatus>>
+    'p2p/debugSnapshot': () => Promise<RemoteResult<DebugSnapshot>>
     'p2p/peers': () => Promise<RemoteResult<PeerInfo[]>>
     'p2p/rejectGate': (id: string) => Promise<RemoteResult<{ ok: boolean; }>>
     'p2p/setProjects': (projects: ProjectEntry[]) => Promise<RemoteResult<{ ok: boolean; }>>

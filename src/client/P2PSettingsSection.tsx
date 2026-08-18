@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { Config, ManualPeer, NodeStatus, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
+import type { Config, DebugSnapshot, ManualPeer, NodeStatus, ProjectEntry } from '@rellopn/dsh-p2p-lan/types'
 
 /** Registration-side data the settings section needs. */
 export interface P2PSettingsInjected {
@@ -10,6 +10,7 @@ export interface P2PSettingsInjected {
   setProjects: (projects: ProjectEntry[]) => Promise<void>
   importWorkspaces: () => Promise<{ ok: boolean; added: number }>
   getNodeStatus: () => Promise<NodeStatus>
+  getDebugSnapshot: () => Promise<DebugSnapshot>
 }
 
 /** Full component props assembled by the settings shell renderer. */
@@ -33,9 +34,10 @@ function splitTags(value: string): string[] {
 
 /** Settings section: full node config (identity, discovery, reply engine) + project table. */
 export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
-  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus } = props
+  const { getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot } = props
   const [config, setConfigState] = useState<Config | null>(null)
   const [status, setStatus] = useState<NodeStatus | null>(null)
+  const [debugSnap, setDebugSnap] = useState<DebugSnapshot | null>(null)
   const [projects, setProjectsState] = useState<ProjectEntry[]>([])
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -44,17 +46,22 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
 
   useEffect(() => {
     let alive = true
-    Promise.all([getConfig(), getProjects(), getNodeStatus()]).then(([cfg, list, runtime]) => {
+    Promise.all([getConfig(), getProjects(), getNodeStatus(), getDebugSnapshot()]).then(([cfg, list, runtime, debug]) => {
       if (!alive) return
       setConfigState(cfg)
       setProjectsState(list)
       setStatus(runtime)
+      setDebugSnap(debug)
       setLoaded(true)
     }, () => {
       if (alive) setLoaded(true)
     })
     return () => { alive = false }
-  }, [getConfig, getProjects, getNodeStatus])
+  }, [getConfig, getProjects, getNodeStatus, getDebugSnapshot])
+
+  const refreshDebug = (): void => {
+    getDebugSnapshot().then(setDebugSnap, () => {})
+  }
 
   const patch = (next: Partial<Config>): void => {
     if (config === null) return
@@ -117,6 +124,12 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
   return (
     <div style={{ padding: 16, maxWidth: 640 }}>
       <h2 style={{ fontSize: 16, margin: 0 }}>协作</h2>
+      <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', marginTop: 2 }}>
+        插件版本 {debugSnap?.version ?? '…'}
+        {debugSnap?.started === true
+          ? ` · 监听 ${debugSnap.effectivePort}`
+          : ' · 未运行'}
+      </div>
 
       <div style={label}>节点名称</div>
       <input
@@ -258,6 +271,45 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
         <button type="button" style={{ ...input, cursor: 'pointer', background: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-label-primary-inverted)' }} onClick={save}>保存节点配置</button>
         {saved !== null ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>{saved}</span> : null}
       </div>
+
+      <div style={label}>调试模式</div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4 }}>
+        <input
+          type="checkbox"
+          checked={config.debug}
+          onChange={() => { patch({ debug: !config.debug }) }}
+        />
+        开启后显示连接 JSON 串与运行数据（下方调试区）
+      </label>
+
+      {config.debug && debugSnap !== null ? (
+        <div style={row}>
+          <div style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
+            <div style={{ marginBottom: 4 }}>
+              节点 {debugSnap.nodeName}（{debugSnap.version}）·
+              宣告 {debugSnap.advertisedHost || '(自动)'} · 监听 {debugSnap.effectivePort}（请求 {debugSnap.requestedPort}）
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              peers {debugSnap.peers.length} · outbox {debugSnap.outboxCount} · inbox {debugSnap.inboxCount} ·
+              gates {debugSnap.gateCount} · pending {debugSnap.pendingWaits} ·
+              连接 出{debugSnap.outboundConnections}/入{debugSnap.inboundConnections}
+            </div>
+            <button type="button" style={{ ...input, cursor: 'pointer', marginBottom: 6 }} onClick={refreshDebug}>刷新调试数据</button>
+            {debugSnap.peers.length > 0 ? (
+              <pre style={{ margin: '4px 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--dsw-alias-label-secondary)' }}>
+{debugSnap.peers.map(p => `${p.name} (${p.host}:${p.port}) [${p.capabilities.join(',') || 'no caps'}]`).join('\n')}
+              </pre>
+            ) : null}
+            {debugSnap.frames.length === 0 ? (
+              <div style={hint}>暂无连接帧（发/收消息后这里会出现原始 JSON）。</div>
+            ) : (
+              <pre style={{ margin: '4px 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 260, overflow: 'auto', color: 'var(--dsw-alias-label-secondary)' }}>
+{debugSnap.frames.slice(0, 20).map(f => `${f.dir === 'in' ? '◀' : '▶'} ${new Date(f.ts).toISOString().slice(11, 23)} ${f.json}`).join('\n')}
+              </pre>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <hr style={{ border: 'none', borderTop: '1px solid var(--dsw-alias-border-l1)', margin: '16px 0' }} />
 

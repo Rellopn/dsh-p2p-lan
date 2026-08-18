@@ -1,6 +1,7 @@
 /** Cordis plugin wiring for LAN P2P collaboration. @module @rellopn/dsh-p2p-lan */
 
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -16,12 +17,29 @@ import { createLlmReplyEngine, type MutableReplyEngine } from './reply-engine.ts
 import { Store } from './store.ts'
 import { Transport } from './transport.ts'
 import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
-import type { Config as ConfigModel, NodeStatus } from './types.ts'
+import type { Config as ConfigModel, DebugSnapshot, NodeStatus } from './types.ts'
 
 // The wire type lives in ./types.ts (exported via the `./types` subpath for the
 // client/Remote face); re-export it here so this module can use the `Config`
 // type name alongside the `Config` z-schema value below.
 export type Config = ConfigModel
+
+/**
+ * Version of the installed plugin package (resolved at runtime via the
+ * package's own `./package.json` export, so it always reflects what is
+ * actually installed, not what was baked in at build time).
+ */
+const require = createRequire(import.meta.url)
+let cachedVersion: string | undefined
+function pluginVersion(): string {
+  if (cachedVersion !== undefined) return cachedVersion
+  try {
+    cachedVersion = (require('@rellopn/dsh-p2p-lan/package.json') as { version?: string }).version ?? 'unknown'
+  } catch {
+    cachedVersion = 'unknown'
+  }
+  return cachedVersion
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -50,6 +68,7 @@ export const Config: z<ConfigModel> = z.object({
     path: z.string(),
     broadcast: z.boolean().default(false),
   })).default([]),
+  debug: z.boolean().default(false),
 })
 
 /** Settings schema: the full config, editable + persisted from the browser settings panel. */
@@ -70,6 +89,7 @@ export const SettingsSchema: z<ConfigModel> = z.object({
     path: z.string(),
     broadcast: z.boolean().default(false),
   })),
+  debug: z.boolean(),
 })
 
 /** A reused per-project agent session (the owned create() handle). */
@@ -449,6 +469,28 @@ export class P2PService extends TypertRemoteService {
       requestedPort: this.config.port,
       effectivePort: this.transport.effectivePort() ?? this.config.port,
       started: this.started,
+    }
+  }
+
+  @Remote('debugSnapshot')
+  debugSnapshot(): DebugSnapshot {
+    const connections = this.transport.connectionSnapshot()
+    return {
+      version: pluginVersion(),
+      debug: this.config.debug,
+      nodeName: this.config.nodeName,
+      advertisedHost: this.config.advertisedHost,
+      requestedPort: this.config.port,
+      effectivePort: this.transport.effectivePort() ?? this.config.port,
+      started: this.started,
+      frames: this.transport.debugFrames(),
+      peers: this.discovery.peers(),
+      outboxCount: this.store.outboxSnapshot().length,
+      inboxCount: this.agent.inboxSnapshot().length,
+      gateCount: this.agent.gateSnapshot().length,
+      pendingWaits: this.agent.pendingWaits(),
+      outboundConnections: connections.outbound,
+      inboundConnections: connections.inbound,
     }
   }
 

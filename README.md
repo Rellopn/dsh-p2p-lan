@@ -65,6 +65,7 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | `model` | `''` | LLM model for reply drafting |
 | `persona` | `''` | Role hint injected into the drafting prompt |
 | `projects` | `[]` | `[{ name, path, broadcast }]` per-project session routing |
+| `debug` | `false` | Settings panel shows the plugin version, live counters, and the last raw wire JSON frames (in/out) |
 
 ## WSL2 / broadcast-disabled networks
 

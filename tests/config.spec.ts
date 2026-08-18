@@ -15,6 +15,8 @@ describe('config', () => {
     expect(config.nodeName).toBe('')
     // An empty advertised host means "auto-detect the LAN address".
     expect(config.advertisedHost).toBe('')
+    // Debug mode is off by default.
+    expect(config.debug).toBe(false)
   })
 
   it('merges partial config over defaults', () => {
@@ -27,6 +29,11 @@ describe('config', () => {
 
   it('passes an explicit advertisedHost through', () => {
     expect(resolveConfig({ advertisedHost: '10.0.0.8' }).advertisedHost).toBe('10.0.0.8')
+  })
+
+  it('passes the debug flag through', () => {
+    expect(resolveConfig({ debug: true }).debug).toBe(true)
+    expect(resolveConfig({ debug: false }).debug).toBe(false)
   })
 
   it('keeps defaults untouched', () => {

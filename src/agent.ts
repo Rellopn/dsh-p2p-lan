@@ -101,6 +101,11 @@ export class Agent extends EventEmitter {
     this.sendWaitTimeoutMs = ms
   }
 
+  /** Number of send-and-wait requests currently awaiting a reply (debug snapshot). */
+  pendingWaits(): number {
+    return this.pending.size
+  }
+
   /** Route one inbound envelope: resolve a pending wait, else inbox, else auto-reply/gate. */
   async handleInbound(envelope: Envelope): Promise<void> {
     if (envelope.kind === 'reply' && envelope.replyTo !== undefined) {

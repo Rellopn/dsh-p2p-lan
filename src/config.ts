@@ -29,6 +29,8 @@ export interface Config {
   sensitivity: Sensitivity
   sendWaitTimeoutMs: number
   projects: ProjectEntry[]
+  /** When true the settings panel shows raw wire JSON frames and runtime snapshots. */
+  debug: boolean
 }
 
 /** Default wait for a synchronous reply. */
@@ -93,6 +95,7 @@ export const defaultConfig: Config = {
   sensitivity: 'standard',
   sendWaitTimeoutMs: DEFAULT_SEND_WAIT_TIMEOUT_MS,
   projects: [],
+  debug: false,
 }
 
 /**
