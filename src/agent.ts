@@ -53,6 +53,11 @@ export class Agent extends EventEmitter {
     this.startProjectTask = options.startProjectTask
   }
 
+  /** Emit a structured log record (`level`: info|warn|error) for the host to forward. */
+  private log(level: 'info' | 'warn' | 'error', message: string): void {
+    this.emit('log', { level, message })
+  }
+
   /** Async send to one or more peers; resolves to offline/delivered/queued. */
   async send(target: SendTarget, body: string, attachment?: AttachmentRef): Promise<'delivered' | 'queued' | 'offline'> {
     const addresses = this.resolveTarget(target)
@@ -114,9 +119,11 @@ export class Agent extends EventEmitter {
         clearTimeout(pending.timer)
         this.pending.delete(envelope.replyTo)
         pending.resolve(envelope)
+        this.log('info', `reply ${envelope.id} resolved pending wait ${envelope.replyTo}`)
         return
       }
       this.store.deliverInbound(envelope)
+      this.log('info', `orphan reply ${envelope.id} (replyTo=${envelope.replyTo}) -> inbox`)
       return
     }
 
@@ -127,6 +134,7 @@ export class Agent extends EventEmitter {
       // to the sender (approval is manual, so the anti-storm rule still holds).
       this.gates.set(envelope.id, { original: envelope, draftBody: '' })
       this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
+      this.log('warn', `BROADCAST request ${envelope.id} from ${envelope.from.name} -> inbox + gate (manual review)`)
       return
     }
 
@@ -139,12 +147,14 @@ export class Agent extends EventEmitter {
       // sender is in the directory (see approveGate).
       this.gates.set(envelope.id, { original: envelope, draftBody: '' })
       this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
+      this.log('warn', `request ${envelope.id} from UNKNOWN sender ${envelope.from.name} (${envelope.from.id}) -> inbox + gate (sender not in directory)`)
       return
     }
 
     // Record every recognized request in the inbox too, so a human watching the
     // node can see the incoming message (auto-reply/gate run on top of it).
     this.store.deliverInbound(envelope)
+    this.log('info', `request ${envelope.id} from ${peer.name}@${peer.host}:${peer.port} kind=${envelope.kind} to=${JSON.stringify(envelope.to)} body=${envelope.body.slice(0, 80)}`)
 
     const draft = await this.replyEngine.draftReply(envelope)
     const forceGate = envelope.auto === true && (envelope.depth ?? 0) >= MAX_REPLY_DEPTH
@@ -155,9 +165,11 @@ export class Agent extends EventEmitter {
     // that merely NAMES a project also runs that project's session (see inferProject).
     const project = this.resolveProject(envelope) ?? this.inferProject(envelope.body)
     if (project !== undefined) {
+      this.log('info', `project request ${envelope.id} -> project ${project.name}`)
       if (draft.needsGate || forceGate) {
         this.gates.set(envelope.id, { original: envelope, draftBody: '' })
         this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
+        this.log('warn', `project request ${envelope.id} gated (needsGate=${draft.needsGate})`)
         return
       }
       const answer = await this.runProjectTask(project, envelope.body)
@@ -166,9 +178,11 @@ export class Agent extends EventEmitter {
       if (answer.trim() === '') {
         this.gates.set(envelope.id, { original: envelope, draftBody: '' })
         this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
+        this.log('warn', `project request ${envelope.id} produced empty answer -> gated`)
         return
       }
       await this.sendReply(envelope, peer, answer, true)
+      this.log('info', `project request ${envelope.id} executed -> replied auto`)
       return
     }
 
@@ -177,25 +191,35 @@ export class Agent extends EventEmitter {
     if (draft.needsGate || forceGate || draft.body.trim() === '') {
       this.gates.set(envelope.id, { original: envelope, draftBody: draft.body })
       this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: draft.body })
+      this.log('warn', `request ${envelope.id} gated (needsGate=${draft.needsGate} empty=${draft.body.trim() === ''})`)
       return
     }
     await this.sendReply(envelope, peer, draft.body, true)
+    this.log('info', `request ${envelope.id} auto-replied`)
   }
 
   /** Human approves a gated request: runs the project session (reply = result) or sends the edited draft. */
   async approveGate(id: string, finalBody?: string): Promise<boolean> {
     const item = this.gates.get(id)
-    if (item === undefined) return false
+    if (item === undefined) {
+      this.log('warn', `approveGate ${id}: no such gate`)
+      return false
+    }
     const peer = this.resolvePeer(item.original.from.id, item.original.from.name)
+    this.log('info', `approveGate ${id} from ${item.original.from.name} (senderKnown=${peer !== undefined})`)
 
     // A project-targeted request runs its session now; the reply is the result.
     const project = this.resolveProject(item.original)
     if (project !== undefined) {
       const answer = await this.runProjectTask(project, item.original.body)
       // Never send an empty answer: keep the gate so the human can edit/reject.
-      if (answer.trim() === '') return false
+      if (answer.trim() === '') {
+        this.log('warn', `approveGate ${id}: project task returned empty -> gate kept`)
+        return false
+      }
       this.gates.delete(id)
       if (peer !== undefined) await this.sendReply(item.original, peer, answer, false)
+      this.log('info', `approveGate ${id}: project task executed${peer === undefined ? ' but reply not sent (sender unknown)' : ' + reply sent'}`)
       return true
     }
 
@@ -206,9 +230,13 @@ export class Agent extends EventEmitter {
     if (body.trim() === '') return false
     // Unknown sender (no manual peer / discovery entry): sending would fail
     // silently, so keep the gate open until the sender is in the directory.
-    if (peer === undefined) return false
+    if (peer === undefined) {
+      this.log('warn', `approveGate ${id}: sender not in directory -> gate kept`)
+      return false
+    }
     this.gates.delete(id)
     await this.sendReply(item.original, peer, body, false)
+    this.log('info', `approveGate ${id}: reply sent`)
     return true
   }
 
@@ -241,7 +269,8 @@ export class Agent extends EventEmitter {
 
   /** Human rejects a gated draft. */
   rejectGate(id: string): void {
-    this.gates.delete(id)
+    const existed = this.gates.delete(id)
+    this.log('info', `rejectGate ${id} (existed=${existed})`)
   }
 
   private async sendReply(original: Envelope, peer: PeerInfo, body: string, auto: boolean): Promise<void> {
@@ -249,7 +278,8 @@ export class Agent extends EventEmitter {
     reply.replyTo = original.id
     reply.auto = auto
     reply.depth = (original.depth ?? 0) + 1
-    await this.store.send({ host: peer.host, port: peer.port }, reply)
+    const outcome = await this.store.send({ host: peer.host, port: peer.port }, reply)
+    this.log('info', `sendReply ${original.id} -> ${peer.name}@${peer.host}:${peer.port} auto=${auto} outcome=${outcome}`)
   }
 
   private awaitReply(id: string): Promise<SendAndWaitResult> {

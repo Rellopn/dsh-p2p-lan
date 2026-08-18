@@ -188,7 +188,15 @@ export class P2PService extends TypertRemoteService {
     })
 
     this.transport.on('envelope', (envelope: Envelope) => {
+      this.ctx.logger.info(`p2p-lan: inbound ${envelope.kind} id=${envelope.id} from=${envelope.from.name} to=${JSON.stringify(envelope.to)} body=${envelope.body.slice(0, 80)}`)
       void this.agent.handleInbound(envelope)
+    })
+    // Forward agent runtime logs (inbound routing / gate decisions) to the host logger.
+    this.agent.on('log', (record: { level: 'info' | 'warn' | 'error'; message: string }) => {
+      const text = `p2p-lan: ${record.message}`
+      if (record.level === 'warn') this.ctx.logger.warn(text)
+      else if (record.level === 'error') this.ctx.logger.warn(`p2p-lan: ERROR ${record.message}`)
+      else this.ctx.logger.info(text)
     })
     // Don't let a post-bind server error become an unhandled 'error' event.
     this.transport.on('error', (error) => {

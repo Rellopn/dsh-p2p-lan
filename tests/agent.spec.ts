@@ -383,6 +383,20 @@ describe('agent reply rules', () => {
     expect(rec.sent.length).toBe(0)
   })
 
+  it('emits structured log records as it routes inbound messages', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([]), autoEngine())
+    const logs: Array<{ level: string; message: string }> = []
+    agent.on('log', (record: { level: string; message: string }) => logs.push(record))
+
+    const request: Envelope = {
+      id: 'lg1', kind: 'request', from: { id: 'x', name: 'node-X' }, to: { id: 'a', name: 'node-A' }, body: 'hi', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+    expect(logs.some(l => l.level === 'warn' && l.message.includes('UNKNOWN sender'))).toBe(true)
+  })
+
   it('forces a gate when an auto chain reaches the depth limit', async () => {
     const rec = recordingTransport()
     const store = new Store(rec.transport)
