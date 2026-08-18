@@ -16,6 +16,7 @@ import type { Envelope } from './messages.ts'
 import { createLlmReplyEngine, type MutableReplyEngine } from './reply-engine.ts'
 import { Store } from './store.ts'
 import { Transport } from './transport.ts'
+import { appendDiagLog, openDiagLog } from './diag-log.ts'
 import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
 import type { Config as ConfigModel, DebugSnapshot, NodeStatus } from './types.ts'
 
@@ -188,11 +189,15 @@ export class P2PService extends TypertRemoteService {
     })
 
     this.transport.on('envelope', (envelope: Envelope) => {
-      this.ctx.logger.info(`p2p-lan: inbound ${envelope.kind} id=${envelope.id} from=${envelope.from.name} to=${JSON.stringify(envelope.to)} body=${envelope.body.slice(0, 80)}`)
+      const line = `inbound ${envelope.kind} id=${envelope.id} from=${envelope.from.name} to=${JSON.stringify(envelope.to)} body=${envelope.body.slice(0, 80)}`
+      this.ctx.logger.info(`p2p-lan: ${line}`)
+      appendDiagLog('info', line)
       void this.agent.handleInbound(envelope)
     })
-    // Forward agent runtime logs (inbound routing / gate decisions) to the host logger.
+    // Forward agent runtime logs (inbound routing / gate decisions) to the host
+    // logger AND the diagnostic file.
     this.agent.on('log', (record: { level: 'info' | 'warn' | 'error'; message: string }) => {
+      appendDiagLog(record.level, record.message)
       const text = `p2p-lan: ${record.message}`
       if (record.level === 'warn') this.ctx.logger.warn(text)
       else if (record.level === 'error') this.ctx.logger.warn(`p2p-lan: ERROR ${record.message}`)
@@ -226,8 +231,10 @@ export class P2PService extends TypertRemoteService {
       this.discovery.setAdvertisedPort(actualPort)
       this.discovery.start()
       this.started = true
+      appendDiagLog('info', `transport listening on ${actualPort} (requested ${this.config.port})`)
     } catch (error) {
       this.started = false
+      appendDiagLog('error', `start failed: ${error instanceof Error ? error.message : String(error)}`)
       this.ctx.logger.warn('p2p-lan: failed to start transport/discovery')
       this.ctx.logger.warn(error)
     }
@@ -540,6 +547,8 @@ export function apply(ctx: Context, config: Config): void {
   // default. The resolved name is persisted into settings on the first run so
   // the identity survives restarts.
   const initialName = resolveNodeName(config.nodeName)
+  openDiagLog()
+  appendDiagLog('info', `plugin v${pluginVersion()} applying (nodeName=${initialName})`)
   const p2p = new P2PService(ctx, { ...config, nodeName: initialName })
 
   // Live settings: the static `config` is the base; a settings namespace layers
