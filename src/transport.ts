@@ -1,7 +1,7 @@
 /** WebSocket transport: server + client, transport ack, id dedupe, retry with backoff. @module @rellopn/dsh-p2p-lan */
 
 import { EventEmitter } from 'node:events'
-import { createServer } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
 import { DEFAULT_PORT_RETRIES } from './config.ts'
 import { validateEnvelope, type Envelope } from './messages.ts'
@@ -55,6 +55,8 @@ export class Transport extends EventEmitter {
   private readonly portRetryDelayMs: number
 
   private server: WebSocketServer | undefined
+  /** The underlying http server we listen on (ws' WSS.close() does NOT close an externally-passed server). */
+  private httpServer: Server | undefined
   /** The port actually bound by the last successful start(). */
   private boundPort: number | undefined
   /** Set by stop(); a bind that resolves afterwards must not leave a server behind. */
@@ -155,10 +157,11 @@ export class Transport extends EventEmitter {
       socket.on('message', data => this.handleMessage(socket, data))
     })
     this.server = wss
+    this.httpServer = server
     return candidate
   }
 
-  /** Close every connection and the server. */
+  /** Close every connection and release the port. */
   async stop(): Promise<void> {
     this.closing = true
     this.boundPort = undefined
@@ -169,11 +172,25 @@ export class Transport extends EventEmitter {
     this.pending.clear()
     for (const socket of this.clients.values()) socket.terminate()
     this.clients.clear()
-    const server = this.server
-    if (server !== undefined) {
-      for (const client of server.clients) client.terminate()
-      await new Promise<void>(resolve => server.close(() => resolve()))
+    const wss = this.server
+    if (wss !== undefined) {
+      for (const client of wss.clients) client.terminate()
       this.server = undefined
+    }
+    // ws' WebSocketServer.close() does NOT close an externally-passed http
+    // server, so close the http server directly — otherwise the port would be
+    // leaked on every stop (hot-reload drift / "conflicts with itself").
+    const httpServer = this.httpServer
+    this.httpServer = undefined
+    if (httpServer !== undefined) {
+      httpServer.closeAllConnections?.()
+      await new Promise<void>((resolve) => {
+        if (!httpServer.listening) {
+          resolve()
+          return
+        }
+        httpServer.close(() => resolve())
+      })
     }
   }
 

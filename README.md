@@ -66,6 +66,39 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | `persona` | `''` | Role hint injected into the drafting prompt |
 | `projects` | `[]` | `[{ name, path, broadcast }]` per-project session routing |
 
+## WSL2 / broadcast-disabled networks
+
+On networks that block multicast/broadcast (company VLANs, WSL2, docker bridge
+networks), auto-discovery cannot work: **every node must be wired with
+`manualPeers` on both sides.** There is no way around it — discovery is UDP
+multicast only.
+
+For a dsh running **inside WSL2** (NAT, own 172.x network):
+
+1. **Expose it inbound**: on the Windows host, forward a port into WSL and allow
+   it through the firewall (do this once per WSL boot, WSL IPs change):
+   ```powershell
+   # run in Windows (admin PowerShell); find the WSL IP with `wsl hostname -I`
+   netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=53420 connectaddress=<WSL_IP> connectport=53420
+   # keep the WSL IP current:  wsl hostname -I
+   ```
+   Or enable `networkingMode=mirrored` in `%UserProfile%\.wslconfig` (Win11 22H2+),
+   which mirrors WSL ports and multicast onto the Windows host automatically.
+
+2. **Configure both sides** with `manualPeers` — replies are new outbound
+   connections, so each node must know the other's address:
+   - On the remote peer: `{ name: 'wsl-node', host: '<Windows-LAN-IP>', port: 53420 }`
+   - On the WSL node: `{ name: 'remote', host: '<remote-LAN-IP>', port: 53420 }`
+   - Optionally set `advertisedHost: '<Windows-LAN-IP>'` on the WSL node so any
+     node that *can* receive its announce learns the reachable address.
+
+3. **Verify** with the included simulation (docker bridge already blocks
+   multicast, i.e. it is a broadcast-disabled network with a port-proxy relay):
+   ```powershell
+   pwsh docker/run-wsl-sim.ps1     # docker: recv <- relay(53421) <- peer
+   pwsh docker/wsl-sim/run-local.ps1  # same topology, no docker needed
+   ```
+
 ## Tools
 
 The plugin registers three model tools:

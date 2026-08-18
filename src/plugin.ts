@@ -95,6 +95,8 @@ export class P2PService extends TypertRemoteService {
   private started = false
   /** LAN-advertised host of the current node (filled by buildNode). */
   private lanHost = '127.0.0.1'
+  /** Serializes heavy rebuilds so two rapid config saves never race two servers onto one port. */
+  private rebuildTail: Promise<void> = Promise.resolve()
 
   /** Authoritative project-table source (settings-resolved, incl. in-progress rows). */
   private projectsSource: () => ProjectEntry[] = () => []
@@ -221,8 +223,7 @@ export class P2PService extends TypertRemoteService {
     await this.startNode()
   }
 
-  /**
-   * Apply a full config snapshot from live settings. Heavy fields (nodeName /
+  /** Apply a full config snapshot from live settings. Heavy fields (nodeName /
    * port / autoDiscover) rebuild the node core; light fields update in place
    * without dropping the inbox/outbox or tearing down connections.
    */
@@ -234,7 +235,15 @@ export class P2PService extends TypertRemoteService {
       || next.port !== prev.port
       || next.autoDiscover !== prev.autoDiscover
     if (heavyChanged) {
-      void this.rebuildNode(next)
+      // Queue rebuilds: concurrent rebuilds would race two servers onto the
+      // same port and make the node "conflict with itself" (each rebuild leaks
+      // the old port and drifts upward on every save).
+      this.rebuildTail = this.rebuildTail
+        .then(() => this.rebuildNode(next))
+        .catch((error) => {
+          this.ctx.logger.warn('p2p-lan: node rebuild failed')
+          this.ctx.logger.warn(error)
+        })
       return
     }
 

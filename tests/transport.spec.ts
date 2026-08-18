@@ -149,6 +149,19 @@ describe('transport', () => {
       await new Promise<void>(resolve => blocker.close(() => resolve()))
     }
   })
+
+  it('releases the port on stop() so the same port can be rebound (self-conflict regression)', async () => {
+    // WSS.close() does not close an externally-passed http server; if stop()
+    // relied on it, every reload would leak the old port and the node would
+    // fight itself (drift upward on each save). stop() must release the port.
+    const a = new Transport({ port: 12030 })
+    expect(await a.start()).toBe(12030)
+    await a.stop()
+    const b = new Transport({ port: 12030 })
+    expect(await b.start()).toBe(12030)
+    expect(b.effectivePort()).toBe(12030)
+    await b.stop()
+  })
 })
 
 function sleep(ms: number): Promise<void> {
