@@ -143,10 +143,16 @@ export function P2POverlay({ gateSnapshot, peers, inboxSnapshot, approveGate, re
           ) : null}
           {gates.map(gate => {
             const draftEmpty = gate.draftBody.trim() === ''
+            const peerKnown = peerList.some(p => p.name === gate.original.from.name)
             return (
               <div key={gate.id} style={{ borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 8 }}>
                 <div style={{ fontWeight: 600 }}>来自 {gate.original.from.name}{gate.original.to.project ? ` · 项目 ${gate.original.to.project}` : ''}</div>
                 <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginTop: 4 }}>{gate.original.body}</div>
+                {!peerKnown ? (
+                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--dsw-alias-state-warning-primary, #e6a23c)' }}>
+                    发送者不在节点目录（未发现/未添加手动节点），回复可能无法送达——请先在设置中将其加入「手动节点」。
+                  </div>
+                ) : null}
                 {draftEmpty
                   ? <div style={{ marginTop: 4, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>
                     AI 未能起草回复（provider 未配置或调用失败）。请点击「编辑」填写回复后再发送，空回复会被拒绝。

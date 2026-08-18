@@ -320,10 +320,12 @@ describe('agent project routing', () => {
 })
 
 describe('agent reply rules', () => {
-  it('does not auto-reply to a broadcast', async () => {
+  it('does not auto-reply to a broadcast but surfaces a manual gate', async () => {
     const rec = recordingTransport()
     const store = new Store(rec.transport)
     const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13000)]), autoEngine())
+    const gated: string[] = []
+    agent.on('gate-required', (e: { id: string }) => gated.push(e.id))
 
     const broadcast: Envelope = {
       id: 'bc1', kind: 'request', from: { id: 'b', name: 'node-B' }, to: { broadcast: true }, body: 'anyone?', ts: Date.now(),
@@ -331,6 +333,54 @@ describe('agent reply rules', () => {
     await agent.handleInbound(broadcast)
     expect(rec.sent.find(s => s.envelope.kind === 'reply')).toBeUndefined()
     expect(store.checkInbox().map(e => e.id)).toContain('bc1')
+    // The broadcast must not vanish into the inbox: it becomes a visible gate
+    // a human can approve (manual reply, not an auto-reply).
+    expect(gated).toEqual(['bc1'])
+    expect(agent.gateSnapshot().map(g => g.id)).toEqual(['bc1'])
+  })
+
+  it('gates a request from an unknown sender and refuses approval until the sender is known', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([]), autoEngine())
+    const gated: string[] = []
+    agent.on('gate-required', (e: { id: string }) => gated.push(e.id))
+
+    const request: Envelope = {
+      id: 'un1', kind: 'request', from: { id: 'x', name: 'node-X' }, to: { id: 'a', name: 'node-A' }, body: 'please work', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+    expect(gated).toEqual(['un1'])
+    expect(store.checkInbox().map(e => e.id)).toContain('un1')
+    expect(rec.sent.length).toBe(0)
+
+    // Approval is refused while the sender is not in the directory; gate stays open.
+    const ok = await agent.approveGate('un1', 'ok')
+    expect(ok).toBe(false)
+    expect(agent.gateSnapshot().map(g => g.id)).toEqual(['un1'])
+    expect(rec.sent.length).toBe(0)
+  })
+
+  it('still runs the project task for an unknown sender on approval (execution happens, reply cannot be sent)', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const started: string[] = []
+    const agent = new Agent({ id: 'a', name: 'node-A' }, store, directory([]), autoEngine(), {
+      projects: [{ name: 'backend-api', path: '/home/a/api', broadcast: false }],
+      startProjectTask: async (project, body) => { started.push(`${project.name}:${body}`); return 'task done' },
+    })
+
+    const request: Envelope = {
+      id: 'un2', kind: 'request', from: { id: 'x', name: 'node-X' },
+      to: { id: 'a', name: 'node-A', project: 'backend-api' }, body: 'fix it', ts: Date.now(),
+    }
+    await agent.handleInbound(request)
+    const ok = await agent.approveGate('un2')
+    expect(ok).toBe(true)
+    expect(started).toEqual(['backend-api:fix it'])
+    expect(agent.gateSnapshot()).toHaveLength(0)
+    // The sender is unknown, so no reply could be delivered — nothing was sent.
+    expect(rec.sent.length).toBe(0)
   })
 
   it('forces a gate when an auto chain reaches the depth limit', async () => {

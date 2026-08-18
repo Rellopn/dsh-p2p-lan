@@ -122,12 +122,23 @@ export class Agent extends EventEmitter {
 
     if (envelope.to.broadcast === true) {
       this.store.deliverInbound(envelope)
+      // Broadcasts never AUTO-reply (anti-storm), but they must not vanish into
+      // the inbox either: surface a gate so a human can review/approve a reply
+      // to the sender (approval is manual, so the anti-storm rule still holds).
+      this.gates.set(envelope.id, { original: envelope, draftBody: '' })
+      this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
       return
     }
 
     const peer = this.resolvePeer(envelope.from.id, envelope.from.name)
     if (peer === undefined) {
       this.store.deliverInbound(envelope)
+      // Unknown sender (no manual peer / no discovery): we cannot reply, but a
+      // request must not be silently inbox-only. Gate it so the human sees it
+      // and can add the sender as a manual peer; approval is refused until the
+      // sender is in the directory (see approveGate).
+      this.gates.set(envelope.id, { original: envelope, draftBody: '' })
+      this.emit('gate-required', { id: envelope.id, original: envelope, draftBody: '' })
       return
     }
 
@@ -193,8 +204,11 @@ export class Agent extends EventEmitter {
     // until the human actually writes something.
     const body = finalBody ?? item.draftBody
     if (body.trim() === '') return false
+    // Unknown sender (no manual peer / discovery entry): sending would fail
+    // silently, so keep the gate open until the sender is in the directory.
+    if (peer === undefined) return false
     this.gates.delete(id)
-    if (peer !== undefined) await this.sendReply(item.original, peer, body, false)
+    await this.sendReply(item.original, peer, body, false)
     return true
   }
 
