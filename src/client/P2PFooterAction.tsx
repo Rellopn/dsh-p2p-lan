@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { GateItem } from '@rellopn/dsh-p2p-lan/types'
 import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -33,7 +33,7 @@ export function P2PFooterAction({ wide, gateSnapshot, t }: P2PFooterProps): Reac
       type="button"
       onClick={togglePanel}
       aria-pressed={open}
-      className="p2p-clickable"
+      className="p2p-clickable p2p-slide"
       style={{
         display: 'flex', alignItems: 'center', gap: 8, width: '100%',
         border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10,
@@ -45,7 +45,7 @@ export function P2PFooterAction({ wide, gateSnapshot, t }: P2PFooterProps): Reac
     >
       <span style={{ fontSize: wide ? 15 : 16 }}>👥</span>
       {wide ? <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>{t('footer.label')}</span> : null}
-      {pending > 0 ? <span style={badge}>{pending}</span> : null}
+      {pending > 0 ? <span key={pending} className="p2p-badge" style={badge}>{pending}</span> : null}
       {wide ? <span style={{ color: 'var(--dsw-alias-label-tertiary)' }}>›</span> : null}
     </button>
   )

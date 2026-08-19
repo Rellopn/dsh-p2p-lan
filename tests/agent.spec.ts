@@ -4,6 +4,7 @@ import { MAX_REPLY_DEPTH } from '../src/messages.ts'
 import type { Envelope } from '../src/messages.ts'
 import { Store, type TransportLike } from '../src/store.ts'
 import { Agent, type PeerDirectory, type ReplyEngine } from '../src/agent.ts'
+import type { WaitSettledEvent } from '../src/types.ts'
 
 interface Recording {
   transport: TransportLike
@@ -92,6 +93,64 @@ describe('agent sendAndWait', () => {
 
     const result = await agent.sendAndWait({ name: 'node-B' }, 'need interface')
     expect(result.status).toBe('queued')
+  })
+
+  it('returns the reply directly when it arrives within the quick window', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent(
+      { id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13001)]), autoEngine(),
+      { sendWaitTimeoutMs: 500, quickWaitMs: 200 },
+    )
+
+    const waiting = agent.sendAndWait({ name: 'node-B' }, 'quick one')
+    await sleep(30)
+    const request = rec.sent[0]?.envelope
+    await agent.handleInbound(replyTo(request!, 'fast reply'))
+    const result = await waiting
+    expect(result.status).toBe('reply')
+    if (result.status === 'reply') expect(result.reply.body).toBe('fast reply')
+  })
+
+  it('suspends to pending after the quick window and delivers the reply via wait-settled', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent(
+      { id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13002)]), autoEngine(),
+      { sendWaitTimeoutMs: 2000, quickWaitMs: 50 },
+    )
+    const settled: WaitSettledEvent[] = []
+    agent.on('wait-settled', (e: WaitSettledEvent) => { settled.push(e) })
+
+    const result = await agent.sendAndWait({ name: 'node-B' }, 'slow one')
+    expect(result.status).toBe('pending')
+    if (result.status !== 'pending') throw new Error('expected pending')
+    expect(agent.pendingWaits()).toBe(1)
+
+    const request = rec.sent[0]?.envelope
+    await agent.handleInbound(replyTo(request!, 'slow reply'))
+    // The suspended wait is later fulfilled in the background.
+    for (let i = 0; i < 200 && settled.length === 0; i += 1) await sleep(5)
+    expect(settled).toHaveLength(1)
+    expect(settled[0]?.result.status).toBe('reply')
+    expect(agent.pendingWaits()).toBe(0)
+  })
+
+  it('background wait settles as timeout when the total timeout elapses', async () => {
+    const rec = recordingTransport()
+    const store = new Store(rec.transport)
+    const agent = new Agent(
+      { id: 'a', name: 'node-A' }, store, directory([peer('b', 'node-B', 13003)]), autoEngine(),
+      { sendWaitTimeoutMs: 150, quickWaitMs: 30 },
+    )
+    const settled: WaitSettledEvent[] = []
+    agent.on('wait-settled', (e: WaitSettledEvent) => { settled.push(e) })
+
+    const result = await agent.sendAndWait({ name: 'node-B' }, 'never answered')
+    expect(result.status).toBe('pending')
+    for (let i = 0; i < 200 && settled.length === 0; i += 1) await sleep(5)
+    expect(settled[0]?.result.status).toBe('timeout')
+    expect(agent.pendingWaits()).toBe(0)
   })
 })
 
@@ -275,8 +334,15 @@ describe('agent project routing', () => {
     expect(agent.gateSnapshot()).toHaveLength(1)
     expect(agent.gateSnapshot()[0]?.draftBody).toBe('')
 
-    await agent.approveGate('req4', 'edited body')
+    const ok = await agent.approveGate('req4', 'edited body')
 
+    // The gate is accepted immediately (UI feedback must not wait for the
+    // project session); the task + reply run in the background.
+    expect(ok).toBe(true)
+    expect(agent.gateSnapshot()).toHaveLength(0)
+    for (let i = 0; i < 200 && rec.sent.find(s => s.envelope.kind === 'reply') === undefined; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
     expect(started).toEqual([{ name: 'backend-api', body: 'change the api' }])
     const reply = rec.sent.find(s => s.envelope.kind === 'reply')
     expect(reply?.envelope.body).toBe('RESULT')

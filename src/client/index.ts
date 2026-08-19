@@ -93,6 +93,11 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  const getLlmOptions: P2PSettingsInjected['getLlmOptions'] = async () => {
+    const result = await p2p.llmOptions()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
 
   const sectionLabel = ctx.locale.bind('p2p')
 
@@ -118,7 +123,7 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     order: 100,
     label: () => sectionLabel('settings.sectionLabel'),
     locale: 'p2p',
-    inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot }),
+    inject: (): P2PSettingsInjected => ({ getConfig, setConfig, getProjects, setProjects, importWorkspaces, getNodeStatus, getDebugSnapshot, getLlmOptions }),
   }, P2PSettingsSection)
 
   return async () => {

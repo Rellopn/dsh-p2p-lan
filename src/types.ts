@@ -90,6 +90,13 @@ export interface SendTarget {
 
 export interface AgentOptions {
   sendWaitTimeoutMs?: number
+  /**
+   * Quick synchronous wait window for send-and-wait: when no reply arrives
+   * within it, the wait is suspended to the background (status 'pending') and
+   * the reply (or total-timeout) is delivered later via the 'wait-settled'
+   * event. Zero/negative disables the window (always wait the full timeout).
+   */
+  quickWaitMs?: number
   /** Local project table; resolves `to.project` to a directory. */
   projects?: ProjectEntry[]
   /**
@@ -117,6 +124,17 @@ export type SendAndWaitResult =
   | { status: 'reply'; reply: Envelope }
   | { status: 'timeout' }
   | { status: 'queued' }
+  /** The quick wait window elapsed: the wait continues in the background and
+   *  the eventual reply/timeout is delivered via the 'wait-settled' event. */
+  | { status: 'pending'; requestId: string }
+
+/** 'wait-settled' payload: the background outcome of one suspended wait. */
+export interface WaitSettledEvent {
+  /** The outbound request envelope id the wait was keyed on. */
+  requestId: string
+  /** 'reply' with the envelope, or 'timeout' when the total timeout elapsed. */
+  result: { status: 'reply'; reply: Envelope } | { status: 'timeout' }
+}
 
 /** Manual peer address entry (fallback when auto-discovery is blocked). */
 export interface ManualPeer {
@@ -153,6 +171,8 @@ export interface Config {
   port: number
   sensitivity: Sensitivity
   sendWaitTimeoutMs: number
+  /** Quick synchronous wait window before suspending a send-and-wait to the background (ms). */
+  quickWaitMs: number
   provider: string
   model: string
   persona: string
@@ -204,4 +224,14 @@ export interface DebugSnapshot {
   pendingWaits: number
   outboundConnections: number
   inboundConnections: number
+}
+
+/** One LLM provider route plus its advertised models (for the settings selector). */
+export interface LlmOption {
+  /** Provider route key (used by reply-engine `provider`). */
+  provider: string
+  /** Human-readable provider name for the selector. */
+  providerName: string
+  /** Model ids advertised by this provider. */
+  models: string[]
 }

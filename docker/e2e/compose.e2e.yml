@@ -1,0 +1,4 @@
+services:
+  e2e:
+    image: dsh-p2p-e2e:local
+    command: ["node", "docker/e2e/e2e.mjs"]

@@ -18,7 +18,7 @@ import { Store } from './store.ts'
 import { Transport } from './transport.ts'
 import { appendDiagLog, openDiagLog } from './diag-log.ts'
 import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
-import type { Config as ConfigModel, DebugSnapshot, ManualPeer, NodeStatus } from './types.ts'
+import type { Config as ConfigModel, DebugSnapshot, LlmOption, ManualPeer, NodeStatus, WaitSettledEvent } from './types.ts'
 
 // The wire type lives in ./types.ts (exported via the `./types` subpath for the
 // client/Remote face); re-export it here so this module can use the `Config`
@@ -63,6 +63,7 @@ export const Config: z<ConfigModel> = z.object({
   port: z.number().default(53420),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const).default('standard'),
   sendWaitTimeoutMs: z.number().default(300_000),
+  quickWaitMs: z.number().default(10_000),
   provider: z.string().default(''),
   model: z.string().default(''),
   persona: z.string().default(''),
@@ -86,6 +87,7 @@ export const SettingsSchema: z<ConfigModel> = z.object({
   port: z.number(),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const),
   sendWaitTimeoutMs: z.number(),
+  quickWaitMs: z.number(),
   provider: z.string(),
   model: z.string(),
   persona: z.string(),
@@ -122,6 +124,8 @@ export class P2PService extends TypertRemoteService {
   private lanHost = '127.0.0.1'
   /** Serializes heavy rebuilds so two rapid config saves never race two servers onto one port. */
   private rebuildTail: Promise<void> = Promise.resolve()
+  /** Background send-and-wait initiators: requestId -> the agent session to deliver the reply into. */
+  private readonly suspendedWatchers = new Map<string, { followup(message: unknown): void }>()
 
   /** Authoritative project-table source (settings-resolved, incl. in-progress rows). */
   private projectsSource: () => ProjectEntry[] = () => []
@@ -189,6 +193,7 @@ export class P2PService extends TypertRemoteService {
     })
     this.agent = new Agent(this.identity, this.store, this.discovery, this.replyEngine, {
       sendWaitTimeoutMs: config.sendWaitTimeoutMs,
+      quickWaitMs: config.quickWaitMs,
       projects,
       advertised: { host: this.lanHost, port: config.port },
       startProjectTask: this.startProjectTask,
@@ -209,6 +214,26 @@ export class P2PService extends TypertRemoteService {
       if (record.level === 'warn') this.ctx.logger.warn(text)
       else if (record.level === 'error') this.ctx.logger.warn(`p2p-lan: ERROR ${record.message}`)
       else this.ctx.logger.info(text)
+    })
+    // Deliver a suspended wait's outcome back to the initiating session.
+    this.agent.on('wait-settled', (event: WaitSettledEvent) => {
+      const watcher = this.suspendedWatchers.get(event.requestId)
+      this.suspendedWatchers.delete(event.requestId)
+      const text = event.result.status === 'reply'
+        ? `[p2p] ${event.result.reply.from.name} 已回复你之前发出的协作消息：\n${event.result.reply.body}`
+        : `[p2p] 你之前发出的协作消息等待 ${this.config.sendWaitTimeoutMs}ms 未收到回复（已超时）。`
+      if (watcher === undefined) {
+        appendDiagLog('warn', `wait-settled ${event.requestId}: no initiator registered, delivery skipped`)
+        return
+      }
+      try {
+        watcher.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+        appendDiagLog('info', `wait-settled ${event.requestId}: ${event.result.status} delivered to initiator`)
+      } catch (error) {
+        this.ctx.logger.warn('p2p-lan: background wait delivery failed')
+        this.ctx.logger.warn(error)
+        appendDiagLog('error', `wait-settled ${event.requestId}: delivery failed (${error instanceof Error ? error.message : String(error)})`)
+      }
     })
     // Don't let a post-bind server error become an unhandled 'error' event.
     this.transport.on('error', (error) => {
@@ -307,6 +332,7 @@ export class P2PService extends TypertRemoteService {
     this.discovery.setAdvertisedHost(this.lanHost)
     this.agent.setAdvertised(this.lanHost, this.transport.effectivePort() ?? next.port)
     this.agent.setSendWaitTimeoutMs(next.sendWaitTimeoutMs)
+    this.agent.setQuickWaitMs(next.quickWaitMs)
     this.discovery.setProjects(broadcastProjects)
     this.agent.setProjects(valid)
   }
@@ -563,15 +589,52 @@ export class P2PService extends TypertRemoteService {
     }
   }
 
+  /**
+   * List the LLM provider routes the user has configured, with their advertised
+   * models — so the settings panel offers a selection instead of free text.
+   */
+  @Remote('llmOptions')
+  async llmOptions(): Promise<LlmOption[]> {
+    const llm = this.ctx.get('llm') as
+      | {
+          listProviders(): Array<{ id: string; name: string }>
+          listModels(provider: string): Promise<Array<{ id: string; name: string }>>
+        }
+      | undefined
+    if (llm === undefined) return []
+    const options: LlmOption[] = []
+    for (const provider of llm.listProviders()) {
+      try {
+        const models = await llm.listModels(provider.id)
+        options.push({ provider: provider.id, providerName: provider.name, models: models.map(m => m.id) })
+      } catch {
+        options.push({ provider: provider.id, providerName: provider.name, models: [] })
+      }
+    }
+    return options
+  }
+
   async send(target: SendTarget, body: string): Promise<'delivered' | 'queued' | 'offline'> {
     return this.agent.send(target, body)
   }
 
-  /** Synchronous send-and-wait, normalized for the `p2p_send_and_wait` tool. */
-  async sendAndWait(target: SendTarget, body: string): Promise<{ status: 'reply' | 'timeout' | 'queued'; reply?: { from: string; body: string } }> {
+  /** Send-and-wait, normalized for the `p2p_send_and_wait` tool; a `pending`
+   *  outcome means the quick window elapsed and the reply/timeout will be
+   *  delivered to the initiating session via the background 'wait-settled' path. */
+  async sendAndWait(target: SendTarget, body: string): Promise<{ status: 'reply' | 'timeout' | 'queued' | 'pending'; reply?: { from: string; body: string } }> {
     const result = await this.agent.sendAndWait(target, body)
     if (result.status === 'reply') {
       return { status: 'reply', reply: { from: result.reply.from.name, body: result.reply.body } }
+    }
+    if (result.status === 'pending') {
+      const initiator = (this.ctx.get('agents') as { currentInitiator(): unknown } | undefined)?.currentInitiator()
+      const followup = (initiator as { followup?: unknown } | undefined)?.followup
+      if (typeof followup === 'function') {
+        this.suspendedWatchers.set(result.requestId, initiator as { followup(message: unknown): void })
+        appendDiagLog('info', `send_and_wait ${result.requestId} suspended; initiator registered for background delivery`)
+      } else {
+        appendDiagLog('warn', `send_and_wait ${result.requestId} suspended but no initiator available (reply will not be delivered to a session)`)
+      }
     }
     return { status: result.status }
   }
@@ -684,7 +747,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'p2p_send_and_wait',
-    description: 'Send a question to a LAN peer and block until the peer replies or the timeout elapses. Prefer this for request-reply (e.g. asking a colleague for a file). Returns queued when the peer is offline.',
+    description: 'Send a question to a LAN peer and wait briefly for the reply. If the peer does not reply within the quick window, returns pending: the wait continues in the background and the eventual reply (or timeout) will be delivered back to this conversation automatically — do NOT resend. Prefer this for request-reply (e.g. asking a colleague for a file). Returns queued when the peer is offline.',
     parameters: {
       target: {
         type: 'object',
@@ -706,7 +769,7 @@ export function apply(ctx: Context, config: Config): void {
         type: 'object',
         additionalProperties: false,
         properties: {
-          status: { type: 'string', required: true, enum: ['reply', 'timeout', 'queued'] },
+          status: { type: 'string', required: true, enum: ['reply', 'timeout', 'queued', 'pending'] },
           reply: {
             type: 'object',
             additionalProperties: false,
@@ -721,10 +784,13 @@ export function apply(ctx: Context, config: Config): void {
         if (value.status === 'reply' && value.reply !== undefined) {
           return [{ type: 'text', text: `p2p_send_and_wait: 回复来自 ${value.reply.from}：${value.reply.body}` }]
         }
+        if (value.status === 'pending') {
+          return [{ type: 'text', text: 'p2p_send_and_wait: pending（对方暂未回复，等待已在后台挂起；回复或超时到达后会自动送达，请勿重复发送）' }]
+        }
         return [{ type: 'text', text: `p2p_send_and_wait: ${value.status}` }]
       },
     },
-    async execute(args): Promise<{ status: 'reply' | 'timeout' | 'queued'; reply?: { from: string; body: string } }> {
+    async execute(args): Promise<{ status: 'reply' | 'timeout' | 'queued' | 'pending'; reply?: { from: string; body: string } }> {
       return p2p.sendAndWait(args.target, args.body)
     },
   }))

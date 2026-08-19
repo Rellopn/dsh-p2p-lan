@@ -1,0 +1,33 @@
+# Two peers with AUTO-DISCOVERY OFF; each knows the other only by manual
+# IP:port (fixed addresses below). A sends a message to B; B auto-replies.
+name: p2p-manual-msg
+services:
+  nodeb:
+    image: dsh-p2p-manual:local
+    environment:
+      MY_PORT: "53420"
+      PEER_HOST: "10.88.0.10"
+      PEER_PORT: "53410"
+    command: ["node", "docker/manual-msg/probe-b.mjs"]
+    networks:
+      manual-net:
+        ipv4_address: 10.88.0.11
+  nodea:
+    image: dsh-p2p-manual:local
+    environment:
+      MY_PORT: "53410"
+      PEER_HOST: "10.88.0.11"
+      PEER_PORT: "53420"
+    command: ["node", "docker/manual-msg/probe-a.mjs"]
+    networks:
+      manual-net:
+        ipv4_address: 10.88.0.10
+    depends_on:
+      - nodeb
+
+networks:
+  manual-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.88.0.0/24

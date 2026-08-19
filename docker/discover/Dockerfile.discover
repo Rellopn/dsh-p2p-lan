@@ -1,0 +1,8 @@
+FROM node:22-bookworm
+RUN mkdir -p /opt/sim && cd /opt/sim \
+    && npm init -y >/dev/null 2>&1 \
+    && npm pkg set type=module \
+    && npm install ws zod --no-audit --no-fund --silent
+COPY lib/types /opt/sim/lib/types
+COPY docker/discover /opt/sim/docker/discover
+WORKDIR /opt/sim

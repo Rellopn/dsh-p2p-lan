@@ -32,6 +32,8 @@ export interface Config {
   groupTable: Record<string, string[]>
   sensitivity: Sensitivity
   sendWaitTimeoutMs: number
+  /** Quick synchronous wait window before suspending a send-and-wait to the background (ms). */
+  quickWaitMs: number
   projects: ProjectEntry[]
   /** When true the settings panel shows raw wire JSON frames and runtime snapshots. */
   debug: boolean
@@ -39,6 +41,8 @@ export interface Config {
 
 /** Default wait for a synchronous reply. */
 export const DEFAULT_SEND_WAIT_TIMEOUT_MS = 5 * 60 * 1000
+/** Default quick wait window before suspending a wait to the background. */
+export const DEFAULT_QUICK_WAIT_MS = 10 * 1000
 /** Default WebSocket listen port. */
 export const DEFAULT_PORT = 53420
 /** How many consecutive busy ports the transport will try beyond the requested one. */
@@ -100,6 +104,7 @@ export const defaultConfig: Config = {
   groupTable: {},
   sensitivity: 'standard',
   sendWaitTimeoutMs: DEFAULT_SEND_WAIT_TIMEOUT_MS,
+  quickWaitMs: DEFAULT_QUICK_WAIT_MS,
   projects: [],
   debug: false,
 }

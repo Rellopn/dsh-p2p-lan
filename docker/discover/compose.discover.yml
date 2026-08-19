@@ -1,0 +1,16 @@
+# Two peers on one compose network; verify BIDIRECTIONAL auto-discovery
+# (multicast). On the default bridge the datagram path is isolated, so this
+# proves whether multicast discovery works across compose containers.
+services:
+  nodea:
+    image: dsh-p2p-discover:local
+    environment:
+      ROLE: A
+      PORT: 53420
+    command: ["node", "docker/discover/probe-discover.mjs"]
+  nodeb:
+    image: dsh-p2p-discover:local
+    environment:
+      ROLE: B
+      PORT: 53430
+    command: ["node", "docker/discover/probe-discover.mjs"]

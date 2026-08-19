@@ -67,7 +67,12 @@ export type P2PKey =
   | 'settings.sensitivityStandard'
   | 'settings.sensitivityStrict'
   | 'settings.sendWaitTimeout'
+  | 'settings.quickWait'
   | 'settings.llmRoute'
+  | 'settings.llmProvider'
+  | 'settings.llmModel'
+  | 'settings.llmNoProviders'
+  | 'settings.llmNoModels'
   | 'settings.providerPlaceholder'
   | 'settings.modelPlaceholder'
   | 'settings.llmRouteHint'
@@ -167,7 +172,12 @@ export const zh: P2PDict = {
   'settings.sensitivityStandard': '标准（正式/有风险才转人工）',
   'settings.sensitivityStrict': '严格（一律转人工把关）',
   'settings.sendWaitTimeout': '同步等待回复超时（毫秒）',
+  'settings.quickWait': '快速等待窗口（毫秒）',
   'settings.llmRoute': 'LLM 路由（自动回复/把关用）',
+  'settings.llmProvider': 'LLM 提供方',
+  'settings.llmModel': '模型',
+  'settings.llmNoProviders': '未检测到已配置的 LLM',
+  'settings.llmNoModels': '无可用模型',
   'settings.providerPlaceholder': 'provider',
   'settings.modelPlaceholder': 'model',
   'settings.llmRouteHint': 'provider / model 留空 = 所有来信一律转人工把关（不自动回复）。',
@@ -259,7 +269,12 @@ export const en: P2PDict = {
   'settings.sensitivityStandard': 'Standard (route formal/risky items to a human)',
   'settings.sensitivityStrict': 'Strict (always require human review)',
   'settings.sendWaitTimeout': 'Synchronous reply timeout (ms)',
+  'settings.quickWait': 'Quick wait window (ms)',
   'settings.llmRoute': 'LLM route (auto-reply / review)',
+  'settings.llmProvider': 'LLM provider',
+  'settings.llmModel': 'Model',
+  'settings.llmNoProviders': 'No configured LLM detected',
+  'settings.llmNoModels': 'No models available',
   'settings.providerPlaceholder': 'provider',
   'settings.modelPlaceholder': 'model',
   'settings.llmRouteHint': 'Empty provider / model = route every incoming message to a human (no auto-reply).',

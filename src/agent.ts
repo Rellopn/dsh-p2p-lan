@@ -17,6 +17,7 @@ import type {
   ReplyEngine,
   SendAndWaitResult,
   SendTarget,
+  WaitSettledEvent,
 } from './types.ts'
 
 // Wire types live in ./types.ts (type-only); re-exported for host/test import sites.
@@ -28,6 +29,7 @@ export type {
   ReplyEngine,
   SendAndWaitResult,
   SendTarget,
+  WaitSettledEvent,
 } from './types.ts'
 
 /** Outbound/inbound orchestration for one node. */
@@ -37,6 +39,7 @@ export class Agent extends EventEmitter {
   private readonly directory: PeerDirectory
   private readonly replyEngine: ReplyEngine
   private sendWaitTimeoutMs: number
+  private quickWaitMs: number
   private projects: ProjectEntry[] | undefined
   private advertised: { host: string; port: number } | undefined
   private readonly startProjectTask: ((project: ProjectEntry, body: string, senderName: string) => Promise<string>) | undefined
@@ -50,6 +53,7 @@ export class Agent extends EventEmitter {
     this.directory = directory
     this.replyEngine = replyEngine
     this.sendWaitTimeoutMs = options.sendWaitTimeoutMs ?? DEFAULT_SEND_WAIT_TIMEOUT_MS
+    this.quickWaitMs = options.quickWaitMs ?? 0
     this.projects = options.projects
     this.advertised = options.advertised
     this.startProjectTask = options.startProjectTask
@@ -78,7 +82,13 @@ export class Agent extends EventEmitter {
     return queued ? 'queued' : 'delivered'
   }
 
-  /** Synchronous send: block until a reply or timeout, or return queued when the peer is offline. */
+  /**
+   * Send and wait, with a quick synchronous window: within the window this
+   * behaves like a blocking wait; past it (quickWaitMs > 0 and the total
+   * timeout not reached) the wait is suspended to the background — the caller
+   * gets `{status:'pending', requestId}` immediately, and the eventual reply or
+   * total-timeout is delivered through the 'wait-settled' event.
+   */
   async sendAndWait(target: SendTarget, body: string): Promise<SendAndWaitResult> {
     const addresses = this.resolveTarget(target)
     const address = addresses[0]
@@ -86,7 +96,25 @@ export class Agent extends EventEmitter {
     const envelope = this.newEnvelope('request', this.toAddress(target), body)
     const outcome = await this.store.send(address, envelope)
     if (outcome === 'queued') return { status: 'queued' }
-    return this.awaitReply(envelope.id)
+    const wait = this.awaitReply(envelope.id)
+    if (this.quickWaitMs <= 0 || this.quickWaitMs >= this.sendWaitTimeoutMs) return await wait
+    const raceOutcome: { kind: 'quick' } | SendAndWaitResult = await Promise.race([
+      wait.then<{ kind: 'quick' } | SendAndWaitResult>(result => result),
+      delay(this.quickWaitMs).then<{ kind: 'quick' } | SendAndWaitResult>(() => ({ kind: 'quick' })),
+    ])
+    if (!('kind' in raceOutcome)) return raceOutcome
+    // Quick window elapsed: suspend — keep waiting in the background and
+    // notify the outcome via 'wait-settled'.
+    this.log('info', `wait ${envelope.id} suspended to background after ${this.quickWaitMs}ms (total timeout ${this.sendWaitTimeoutMs}ms)`)
+    void wait.then((result) => {
+      const settled: WaitSettledEvent = result.status === 'reply'
+        ? { requestId: envelope.id, result: { status: 'reply', reply: result.reply } }
+        : { requestId: envelope.id, result: { status: 'timeout' } }
+      this.emit('wait-settled', settled)
+      if (result.status === 'reply') this.log('info', `background wait ${envelope.id} settled: reply from ${result.reply.from.name}`)
+      else this.log('warn', `background wait ${envelope.id} settled: timeout`)
+    })
+    return { status: 'pending', requestId: envelope.id }
   }
 
   /** AI reads its unseen inbox messages (does not clear the human unread badge). */
@@ -111,6 +139,11 @@ export class Agent extends EventEmitter {
   /** Update the synchronous-reply timeout (used by live settings edits). */
   setSendWaitTimeoutMs(ms: number): void {
     this.sendWaitTimeoutMs = ms
+  }
+
+  /** Update the quick wait window (used by live settings edits). */
+  setQuickWaitMs(ms: number): void {
+    this.quickWaitMs = ms
   }
 
   /** Number of send-and-wait requests currently awaiting a reply (debug snapshot). */
@@ -215,18 +248,27 @@ export class Agent extends EventEmitter {
     const peer = this.resolvePeer(item.original.from.id, item.original.from.name)
     this.log('info', `approveGate ${id} from ${item.original.from.name} (senderKnown=${peer !== undefined})`)
 
-    // A project-targeted request runs its session now; the reply is the result.
+    // A project-targeted request runs its session in the BACKGROUND: the gate
+    // is accepted immediately (the UI reaction must not wait minutes of agent
+    // execution); the answer is sent as the reply once the task completes.
     const project = this.resolveProject(item.original)
     if (project !== undefined) {
-      const answer = await this.runProjectTask(project, item.original.body, item.original.from.name)
-      // Never send an empty answer: keep the gate so the human can edit/reject.
-      if (answer.trim() === '') {
-        this.log('warn', `approveGate ${id}: project task returned empty -> gate kept`)
-        return false
-      }
       this.gates.delete(id)
-      if (peer !== undefined) await this.sendReply(item.original, peer, answer, false)
-      this.log('info', `approveGate ${id}: project task executed${peer === undefined ? ' but reply not sent (sender unknown)' : ' + reply sent'}`)
+      const senderName = item.original.from.name
+      void (async () => {
+        this.log('info', `approveGate ${id}: background project task started (${project.name})`)
+        const answer = await this.runProjectTask(project, item.original.body, senderName)
+        if (answer.trim() === '') {
+          this.log('warn', `approveGate ${id}: background project task returned empty -> no reply sent`)
+          return
+        }
+        if (peer === undefined) {
+          this.log('warn', `approveGate ${id}: background task done but sender not in directory -> reply not sent`)
+          return
+        }
+        await this.sendReply(item.original, peer, answer, false)
+        this.log('info', `approveGate ${id}: background task executed + reply sent`)
+      })()
       return true
     }
 
@@ -350,4 +392,8 @@ export class Agent extends EventEmitter {
 
 function toAddress(peer: PeerInfo): PeerAddress {
   return { host: peer.host, port: peer.port }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
