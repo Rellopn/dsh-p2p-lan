@@ -66,13 +66,14 @@ export type P2PKey =
   | 'settings.sensitivityLenient'
   | 'settings.sensitivityStandard'
   | 'settings.sensitivityStrict'
-  | 'settings.sendWaitTimeout'
-  | 'settings.quickWait'
+  | 'settings.waitTimeoutSec'
+  | 'settings.waitTimeoutHint'
   | 'settings.llmRoute'
   | 'settings.llmProvider'
   | 'settings.llmModel'
   | 'settings.llmNoProviders'
   | 'settings.llmNoModels'
+  | 'settings.llmModelMissing'
   | 'settings.providerPlaceholder'
   | 'settings.modelPlaceholder'
   | 'settings.llmRouteHint'
@@ -171,13 +172,14 @@ export const zh: P2PDict = {
   'settings.sensitivityLenient': '宽松（拿不准就自动回复）',
   'settings.sensitivityStandard': '标准（正式/有风险才转人工）',
   'settings.sensitivityStrict': '严格（一律转人工把关）',
-  'settings.sendWaitTimeout': '同步等待回复超时（毫秒）',
-  'settings.quickWait': '快速等待窗口（毫秒）',
+  'settings.waitTimeoutSec': '等待回复超时（秒）',
+  'settings.waitTimeoutHint': '超过一半时间（至多 10 秒）未收到回复时，等待转入后台，回复或超时会稍后自动送达会话。',
   'settings.llmRoute': 'LLM 路由（自动回复/把关用）',
   'settings.llmProvider': 'LLM 提供方',
   'settings.llmModel': '模型',
   'settings.llmNoProviders': '未检测到已配置的 LLM',
   'settings.llmNoModels': '无可用模型',
+  'settings.llmModelMissing': '模型为空：自动回复将不可用（转人工）。请选择一个模型。',
   'settings.providerPlaceholder': 'provider',
   'settings.modelPlaceholder': 'model',
   'settings.llmRouteHint': 'provider / model 留空 = 所有来信一律转人工把关（不自动回复）。',
@@ -268,13 +270,14 @@ export const en: P2PDict = {
   'settings.sensitivityLenient': 'Lenient (auto-reply when unsure)',
   'settings.sensitivityStandard': 'Standard (route formal/risky items to a human)',
   'settings.sensitivityStrict': 'Strict (always require human review)',
-  'settings.sendWaitTimeout': 'Synchronous reply timeout (ms)',
-  'settings.quickWait': 'Quick wait window (ms)',
+  'settings.waitTimeoutSec': 'Reply wait timeout (seconds)',
+  'settings.waitTimeoutHint': 'If no reply arrives within half the time (max 10s), the wait suspends to the background and the reply or timeout is delivered to the session later.',
   'settings.llmRoute': 'LLM route (auto-reply / review)',
   'settings.llmProvider': 'LLM provider',
   'settings.llmModel': 'Model',
   'settings.llmNoProviders': 'No configured LLM detected',
   'settings.llmNoModels': 'No models available',
+  'settings.llmModelMissing': 'Model is empty: auto-reply is disabled (human gate). Pick a model.',
   'settings.providerPlaceholder': 'provider',
   'settings.modelPlaceholder': 'model',
   'settings.llmRouteHint': 'Empty provider / model = route every incoming message to a human (no auto-reply).',

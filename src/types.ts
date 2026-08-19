@@ -170,9 +170,9 @@ export interface Config {
   knownPeers: ManualPeer[]
   port: number
   sensitivity: Sensitivity
-  sendWaitTimeoutMs: number
-  /** Quick synchronous wait window before suspending a send-and-wait to the background (ms). */
-  quickWaitMs: number
+  /** Total send-and-wait timeout in SECONDS. The quick wait window (before the
+   *  wait suspends to the background) is derived: half the total, capped at 10s. */
+  waitTimeoutSec: number
   provider: string
   model: string
   persona: string

@@ -214,10 +214,9 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
               <div style={hint}>{t('settings.portOk', { effective: status.effectivePort })}</div>
             ) : null}
             <div style={hint}>{t('settings.portHintRebind')}</div>
-            <div style={label}>{t('settings.sendWaitTimeout')}</div>
-            <input className="p2p-field" style={fieldNum} value={config.sendWaitTimeoutMs} type="number" onChange={(event) => { patch({ sendWaitTimeoutMs: Number(event.currentTarget.value) || 300000 }) }} />
-            <div style={label}>{t('settings.quickWait')}</div>
-            <input className="p2p-field" style={fieldNum} value={config.quickWaitMs} type="number" onChange={(event) => { patch({ quickWaitMs: Number(event.currentTarget.value) || 10000 }) }} />
+            <div style={label}>{t('settings.waitTimeoutSec')}</div>
+            <input className="p2p-field" style={fieldNum} value={config.waitTimeoutSec} type="number" min={1} step={1} onChange={(event) => { patch({ waitTimeoutSec: Math.max(1, Number(event.currentTarget.value) || 60) }) }} />
+            <div style={hint}>{t('settings.waitTimeoutHint')}</div>
           </div>
 
           {/* ---- reply engine ---- */}
@@ -230,7 +229,14 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
               <option value="strict">{t('settings.sensitivityStrict')}</option>
             </select>
             <div style={label}>{t('settings.llmProvider')}</div>
-            <select className="p2p-field" style={{ ...field, width: '100%' }} value={config.provider} onChange={(event) => { patch({ provider: event.currentTarget.value, model: '' }) }}>
+            <select className="p2p-field" style={{ ...field, width: '100%' }} value={config.provider} onChange={(event) => {
+              // Switching the provider must never leave the route half-set:
+              // auto-select its first advertised model so a saved config always
+              // carries a complete provider+model pair (empty model broke drafting).
+              const provider = event.currentTarget.value
+              const models = llmOptions.find(option => option.provider === provider)?.models ?? []
+              patch({ provider, model: models[0] ?? '' })
+            }}>
               {llmOptions.length === 0
                 ? <option value="">{t('settings.llmNoProviders')}</option>
                 : llmOptions.map(option => <option key={option.provider} value={option.provider}>{option.providerName}</option>)}
@@ -244,6 +250,9 @@ export function P2PSettingsSection(props: P2PSettingsProps): ReactNode {
                 return models.map(model => <option key={model} value={model}>{model}</option>)
               })()}
             </select>
+            {config.provider !== '' && config.model === '' ? (
+              <div style={{ ...hint, color: 'var(--dsw-alias-state-warning-primary, #e6a23c)' }}>{t('settings.llmModelMissing')}</div>
+            ) : null}
             <div style={hint}>{t('settings.llmRouteHint')}</div>
             <div style={label}>{t('settings.persona')}</div>
             <input className="p2p-field" style={fieldFull} value={config.persona} placeholder={t('settings.personaPlaceholder')} onChange={(event) => { patch({ persona: event.currentTarget.value }) }} />

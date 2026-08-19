@@ -17,7 +17,7 @@ import { createLlmReplyEngine, type MutableReplyEngine } from './reply-engine.ts
 import { Store } from './store.ts'
 import { Transport } from './transport.ts'
 import { appendDiagLog, openDiagLog } from './diag-log.ts'
-import { mergeWorkspaces, normalizeProjects, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
+import { mergeWorkspaces, normalizeProjects, QUICK_WAIT_CAP_MS, resolveNodeName, validProjects, type ProjectEntry } from './config.ts'
 import type { Config as ConfigModel, DebugSnapshot, LlmOption, ManualPeer, NodeStatus, WaitSettledEvent } from './types.ts'
 
 // The wire type lives in ./types.ts (exported via the `./types` subpath for the
@@ -32,6 +32,14 @@ export type Config = ConfigModel
  */
 const require = createRequire(import.meta.url)
 let cachedVersion: string | undefined
+/** Derive the quick wait window (ms) from the user-facing timeout (seconds):
+ *  half the total, capped at 10s, floor 1s — past it the wait suspends to the
+ *  background and the reply/timeout is delivered via 'wait-settled'. */
+function quickWaitOf(waitTimeoutSec: number): number {
+  const totalMs = Math.max(1, waitTimeoutSec) * 1000
+  return Math.max(1000, Math.min(QUICK_WAIT_CAP_MS, Math.floor(totalMs / 2)))
+}
+
 function pluginVersion(): string {
   if (cachedVersion !== undefined) return cachedVersion
   try {
@@ -62,8 +70,7 @@ export const Config: z<ConfigModel> = z.object({
   knownPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })).default([]),
   port: z.number().default(53420),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const).default('standard'),
-  sendWaitTimeoutMs: z.number().default(300_000),
-  quickWaitMs: z.number().default(10_000),
+  waitTimeoutSec: z.number().default(60),
   provider: z.string().default(''),
   model: z.string().default(''),
   persona: z.string().default(''),
@@ -86,8 +93,7 @@ export const SettingsSchema: z<ConfigModel> = z.object({
   knownPeers: z.array(z.object({ name: z.string(), host: z.string(), port: z.number() })),
   port: z.number(),
   sensitivity: z.union(['lenient', 'standard', 'strict'] as const),
-  sendWaitTimeoutMs: z.number(),
-  quickWaitMs: z.number(),
+  waitTimeoutSec: z.number(),
   provider: z.string(),
   model: z.string(),
   persona: z.string(),
@@ -192,8 +198,8 @@ export class P2PService extends TypertRemoteService {
       projects: broadcastProjects,
     })
     this.agent = new Agent(this.identity, this.store, this.discovery, this.replyEngine, {
-      sendWaitTimeoutMs: config.sendWaitTimeoutMs,
-      quickWaitMs: config.quickWaitMs,
+      sendWaitTimeoutMs: config.waitTimeoutSec * 1000,
+      quickWaitMs: quickWaitOf(config.waitTimeoutSec),
       projects,
       advertised: { host: this.lanHost, port: config.port },
       startProjectTask: this.startProjectTask,
@@ -221,7 +227,7 @@ export class P2PService extends TypertRemoteService {
       this.suspendedWatchers.delete(event.requestId)
       const text = event.result.status === 'reply'
         ? `[p2p] ${event.result.reply.from.name} 已回复你之前发出的协作消息：\n${event.result.reply.body}`
-        : `[p2p] 你之前发出的协作消息等待 ${this.config.sendWaitTimeoutMs}ms 未收到回复（已超时）。`
+        : `[p2p] 你之前发出的协作消息等待 ${this.config.waitTimeoutSec}s 未收到回复（已超时）。`
       if (watcher === undefined) {
         appendDiagLog('warn', `wait-settled ${event.requestId}: no initiator registered, delivery skipped`)
         return
@@ -331,8 +337,8 @@ export class P2PService extends TypertRemoteService {
     this.lanHost = this.resolveAdvertisedHost(next)
     this.discovery.setAdvertisedHost(this.lanHost)
     this.agent.setAdvertised(this.lanHost, this.transport.effectivePort() ?? next.port)
-    this.agent.setSendWaitTimeoutMs(next.sendWaitTimeoutMs)
-    this.agent.setQuickWaitMs(next.quickWaitMs)
+    this.agent.setSendWaitTimeoutMs(next.waitTimeoutSec * 1000)
+    this.agent.setQuickWaitMs(quickWaitOf(next.waitTimeoutSec))
     this.discovery.setProjects(broadcastProjects)
     this.agent.setProjects(valid)
   }
