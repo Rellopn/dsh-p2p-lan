@@ -14,11 +14,12 @@ A single **dual-face** plugin — the **host bundle** (`dsh.bundle`) ships the P
 - **Automatic discovery** — UDP multicast beacon discovery, plus a manual-peer fallback (`manualPeers`) when multicast is blocked
 - **Mutual pairing on first contact** — with `autoAccept` on, a one-sided `manualPeers` entry becomes a mutual link: your first message carries your address, and the colleague auto-adds you as a `knownPeers` entry (no second-side config)
 - **Capability routing** — address a message to any online node that declares a matching tag (`send_to_capability`)
-- **Broadcast** — one message to every peer, with anti-storm protection (broadcasts never auto-reply)
-- **LLM auto-reply with a human gate** — drafts replies through your configured `provider`/`model`; gate bias is configurable (`lenient` / `standard` / `strict`) and degrades to gate-everything when no LLM is configured
-- **Browser gate panel** — sidebar toggle with a pending-gate badge, a floating overlay with approve/edit/reject, and a full settings panel (hot-reloaded)
+- **Broadcast** — one message to every peer, with anti-storm protection (broadcasts never auto-reply; they land in a human gate instead)
+- **LLM auto-reply with a human gate** — drafts replies through a provider/model picked from dsh's configured LLMs in the settings; gate bias is configurable (`lenient` / `standard` / `strict`) and degrades to gate-everything when the route is missing
+- **Async wait with background delivery** — `p2p_send_and_wait` waits briefly; if the peer hasn't replied in the derived quick window (half the total timeout, capped at 10s) it returns `pending` and the wait suspends to the background — the eventual reply (or total timeout) is delivered back into your session automatically, so you keep working in the meantime
+- **Browser gate panel** — sidebar entry with pending badge, a collaboration **drawer** (slides in from the right without covering the workspace), approve/edit/reject, and a full **bilingual (zh/en)** settings panel (hot-reloaded, collapsible sections, motion)
 - **Attachments** — content-addressed blob store, hash-indexed and deduplicated (up to 100 MiB per attachment)
-- **Per-project sessions** — plain messages that name a project route automatically, with reused per-project agent sessions
+- **Per-project sessions** — one conversation per (project, colleague) pair, named `🤝 来自 <name> 的协作`
 - **Reliability** — transport ack, id dedupe, retry with backoff, outbox/inbox with AI/human read tracking, dead-letter + `send-failed`
 
 ## Installation
@@ -63,9 +64,9 @@ All keys are validated by a zod schema and hot-reloaded from the browser setting
 | `knownPeers` | `[]` | `[{ name, host, port }]` peers auto-learned on first contact and persisted locally (kept separate from `manualPeers`; not touched by `manualPeers` reconciliation) |
 | `port` | `53420` | Requested WebSocket listen port; when busy the plugin binds the next free port (`port`→`port+199`) and advertises the real one. A hot-reload's own closing server is waited out first, so the port does not drift. The settings panel shows the actual port in use |
 | `sensitivity` | `'standard'` | Gate bias: `lenient` / `standard` / `strict` |
-| `sendWaitTimeoutMs` | `300000` | Synchronous reply timeout (ms) |
-| `provider` | `''` | LLM provider for reply drafting (empty degrades to gate-everything) |
-| `model` | `''` | LLM model for reply drafting |
+| `waitTimeoutSec` | `60` | Total send-and-wait timeout **in seconds**. The quick window (before the wait suspends to the background) is derived: half the total, capped at 10s |
+| `provider` | `''` | LLM provider for reply drafting — chosen from dsh's configured LLMs in the settings panel (empty degrades to gate-everything) |
+| `model` | `''` | LLM model for reply drafting (auto-picked with its provider) |
 | `persona` | `''` | Role hint injected into the drafting prompt |
 | `projects` | `[]` | `[{ name, path, broadcast }]` per-project session routing |
 | `debug` | `false` | Settings panel shows the plugin version, live counters, and the last raw wire JSON frames (in/out) |
@@ -115,10 +116,25 @@ The plugin registers three model tools:
 | Tool | Purpose |
 |---|---|
 | `p2p_send` | Send a fire-and-forget notification to a LAN peer (async, no reply) |
-| `p2p_send_and_wait` | Send and block until the peer replies or the timeout elapses |
+| `p2p_send_and_wait` | Send and briefly wait; within `waitTimeoutSec`'s quick window returns `reply`/`timeout`, else `pending` — the wait suspends to the background and the reply/timeout is delivered to your session automatically (do not resend) |
 | `p2p_check_inbox` | List LAN peer messages the AI has not read yet |
 
 Broadcast and capability routing are the same `p2p_send` tool with `target.broadcast` / `target.capability`.
+
+## Docker verification
+
+Repeatable scenario suites shipped under `docker/` (real WebSocket transport + Discovery + Agent, no LLM needed — reply behavior is faked per message so every code path is exercised):
+
+| Suite | What it proves |
+|---|---|
+| `docker/discover` | UDP multicast **auto-discovery** is bidirectional between two compose containers |
+| `docker/manual-msg` | Two nodes with **auto-discovery off** still find each other by manual IP:port and complete a real message round-trip |
+| `docker/e2e` | Full behavior matrix (13 scenarios): quick-window reply, pending→background delivery, pending→timeout, broadcast gate, unknown-sender gate, project auto-run, background project approve, edited reply, reject, busy-port walk, offline queue |
+
+```bash
+docker build -t dsh-p2p-e2e:local -f docker/e2e/Dockerfile.e2e .
+docker compose -f docker/e2e/compose.e2e.yml run --rm e2e   # → TOTAL 13/13 passed
+```
 
 ## Architecture
 
@@ -130,11 +146,12 @@ Broadcast and capability routing are the same `p2p_send` tool with `target.broad
 | `src/discovery.ts` | UDP multicast discovery, manual peers, capability index, name-conflict detection |
 | `src/transport.ts` | WebSocket server/client, transport ack, id dedupe, retry with backoff |
 | `src/store.ts` | Outbox queue, inbox with AI/human read tracking, dead letter + `send-failed` |
-| `src/agent.ts` | Tools (`send` / `send_and_wait` / `check_inbox`), inbound routing, auto-reply/gate engine |
+| `src/agent.ts` | Tools (`send` / `send_and_wait` / `check_inbox`), inbound routing, auto-reply/gate engine, async wait + `wait-settled` |
 | `src/attachment-store.ts` | Content-addressed attachment blob store (hash-indexed, deduped) |
-| `src/reply-engine.ts` | LLM-backed reply drafting + gate decision (degrades to human gate on failure) |
-| `src/plugin.ts` | Cordis plugin: `ctx.p2p` service (remoted as `remote.p2p`), lifecycle wiring |
-| `src/client/` | Browser gate panel: sidebar toggle + floating overlay + settings panel |
+| `src/reply-engine.ts` | LLM-backed reply drafting + gate decision (degrades to human gate on failure, hard 30s timeout) |
+| `src/plugin.ts` | Cordis plugin: `ctx.p2p` service (remoted as `remote.p2p`), lifecycle wiring, background wait delivery |
+| `src/client/` | Browser gate panel: sidebar entry + collaboration drawer + bilingual settings panel |
+| `src/diag-log.ts` | Independent diagnostic log at `~/.dsh/p2p-lan.log` |
 
 Reply rules: broadcasts never auto-reply (anti-storm); auto-reply chains are capped at `MAX_REPLY_DEPTH` (3) and force a human gate beyond it; auto replies always carry `replyTo`.
 
@@ -170,7 +187,7 @@ See [AGENTS.md](AGENTS.md) for the full repository guide for AI coding assistant
 
 ## Status
 
-Published as `@rellopn/dsh-p2p-lan@0.1.0-rc.6` and verified with a two-machine (two-container) LAN end-to-end run: sender node A called `p2p_send_and_wait` and received the LLM-drafted reply from receiver node B.
+Published as `@rellopn/dsh-p2p-lan@0.1.0-rc.29`. Verified end-to-end with the `docker/e2e` matrix (13 scenarios, all passing) plus the `discover` and `manual-msg` compose suites on the released bundle; unit suite is 93 tests green.
 
 ## License
 
