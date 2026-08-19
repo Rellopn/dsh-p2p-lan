@@ -16,8 +16,8 @@ import { P2PFooterAction, type P2PFooterInjected } from './P2PFooterAction.tsx'
 import { P2POverlay, type P2POverlayInjected } from './P2POverlay.tsx'
 import { P2PSettingsSection, type P2PSettingsInjected } from './P2PSettingsSection.tsx'
 
-/** Required services: slots and the Remote mount face. */
-export const inject = ['slots', 'remote']
+/** Required services: slots, the Remote mount face, and the locale registry. */
+export const inject = ['slots', 'remote', 'locale']
 
 /**
  * Client plugin body: self-mount the P2P Remote namespace, then register the
