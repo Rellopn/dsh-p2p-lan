@@ -236,6 +236,21 @@ async function main() {
     report('S12 unknown target -> queued (offline)', r.status === 'queued', JSON.stringify(r.status))
   }
 
+  // ---------- S13 multiple background waits each settle, none left behind ----------
+  {
+    const settleFor = async () => {
+      const r = await A.agent.sendAndWait({ name: 'B' }, '[slow] bg one')
+      if (r.status !== 'pending') return { ok: r.status === 'reply', detail: `direct ${r.status}` }
+      const settled = await nextSettledFor(A.agent, r.requestId)
+      return { ok: settled !== undefined && settled.result.status === 'reply', detail: `settled=${settled?.result.status}` }
+    }
+    const first = await settleFor()
+    const second = await settleFor()
+    report('S13 multiple background waits settle, none left behind',
+      first.ok && second.ok && A.agent.pendingWaits() === 0,
+      `first=${first.detail} second=${second.detail} pendingLeft=${A.agent.pendingWaits()}`)
+  }
+
   // ---------- summary ----------
   console.log('---')
   console.log(`TOTAL ${results.length - failed}/${results.length} passed`)

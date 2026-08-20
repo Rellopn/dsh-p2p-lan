@@ -5,6 +5,8 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (settings.section).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the conversation.input.dock SlotMap merge.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the ctx.locale browser registry into scope.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // The generated Remote contribution: self-mounted so a standalone plugin does not
@@ -15,6 +17,7 @@ import { en, zh } from './i18n.ts'
 import { P2PFooterAction, type P2PFooterInjected } from './P2PFooterAction.tsx'
 import { P2POverlay, type P2POverlayInjected } from './P2POverlay.tsx'
 import { P2PSettingsSection, type P2PSettingsInjected } from './P2PSettingsSection.tsx'
+import { P2PBackgroundBar, type P2PBackgroundBarInjected } from './P2PBackgroundBar.tsx'
 
 /** Required services: slots, the Remote mount face, and the locale registry. */
 export const inject = ['slots', 'remote', 'locale']
@@ -99,6 +102,12 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     return result.value
   }
 
+  const backgroundWaits: P2PBackgroundBarInjected['backgroundWaits'] = async () => {
+    const result = await p2p.backgroundWaits()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+
   const sectionLabel = ctx.locale.bind('p2p')
 
   ctx.slots.register({
@@ -114,6 +123,16 @@ export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
     locale: 'p2p',
     inject: (): P2POverlayInjected => ({ gateSnapshot, peers, inboxSnapshot, approveGate, rejectGate }),
   }, P2POverlay)
+
+  // A slim row above the composer: "N background task(s)" while this session
+  // waits for colleagues' replies in the background.
+  ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'p2p-bg',
+    order: 5,
+    locale: 'p2p',
+    inject: (): P2PBackgroundBarInjected => ({ backgroundWaits }),
+  }, P2PBackgroundBar)
 
   // Settings section: manage the full P2P config (identity, discovery, ports,
   // reply-engine route/gate bias) plus the project table + per-project broadcast.

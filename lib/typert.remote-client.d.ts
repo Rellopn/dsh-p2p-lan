@@ -15,6 +15,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getConfig: () => Promise<RemoteResult<Config>>
     importWorkspaces: () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     llmOptions: () => Promise<RemoteResult<LlmOption[]>>
+    backgroundWaits: () => Promise<RemoteResult<Array<{ sessionId: string; count: number; }>>>
     nodeStatus: () => Promise<RemoteResult<NodeStatus>>
     debugSnapshot: () => Promise<RemoteResult<DebugSnapshot>>
     peers: () => Promise<RemoteResult<PeerInfo[]>>
@@ -31,6 +32,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'p2p/getConfig': () => Promise<RemoteResult<Config>>
     'p2p/importWorkspaces': () => Promise<RemoteResult<{ ok: boolean; added: number; }>>
     'p2p/llmOptions': () => Promise<RemoteResult<LlmOption[]>>
+    'p2p/backgroundWaits': () => Promise<RemoteResult<Array<{ sessionId: string; count: number; }>>>
     'p2p/nodeStatus': () => Promise<RemoteResult<NodeStatus>>
     'p2p/debugSnapshot': () => Promise<RemoteResult<DebugSnapshot>>
     'p2p/peers': () => Promise<RemoteResult<PeerInfo[]>>

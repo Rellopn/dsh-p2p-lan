@@ -132,6 +132,8 @@ export class P2PService extends TypertRemoteService {
   private rebuildTail: Promise<void> = Promise.resolve()
   /** Background send-and-wait initiators: requestId -> the agent session to deliver the reply into. */
   private readonly suspendedWatchers = new Map<string, { followup(message: unknown): void }>()
+  /** Background send-and-wait owner: requestId -> the initiating sessionId ('' = global/none). */
+  private readonly backgroundWaitSession = new Map<string, string>()
 
   /** Authoritative project-table source (settings-resolved, incl. in-progress rows). */
   private projectsSource: () => ProjectEntry[] = () => []
@@ -225,6 +227,7 @@ export class P2PService extends TypertRemoteService {
     this.agent.on('wait-settled', (event: WaitSettledEvent) => {
       const watcher = this.suspendedWatchers.get(event.requestId)
       this.suspendedWatchers.delete(event.requestId)
+      this.backgroundWaitSession.delete(event.requestId)
       const text = event.result.status === 'reply'
         ? `[p2p] ${event.result.reply.from.name} 已回复你之前发出的协作消息：\n${event.result.reply.body}`
         : `[p2p] 你之前发出的协作消息等待 ${this.config.waitTimeoutSec}s 未收到回复（已超时）。`
@@ -620,6 +623,19 @@ export class P2PService extends TypertRemoteService {
     return options
   }
 
+  /**
+   * Background send-and-wait tasks still pending, grouped by the session that
+   * owns them — lets the client show "N background task(s)" on a conversation.
+   */
+  @Remote('backgroundWaits')
+  backgroundWaits(): Array<{ sessionId: string; count: number }> {
+    const tally = new Map<string, number>()
+    for (const sessionId of this.backgroundWaitSession.values()) {
+      tally.set(sessionId, (tally.get(sessionId) ?? 0) + 1)
+    }
+    return [...tally.entries()].map(([sessionId, count]) => ({ sessionId, count }))
+  }
+
   async send(target: SendTarget, body: string): Promise<'delivered' | 'queued' | 'offline'> {
     return this.agent.send(target, body)
   }
@@ -635,9 +651,11 @@ export class P2PService extends TypertRemoteService {
     if (result.status === 'pending') {
       const initiator = (this.ctx.get('agents') as { currentInitiator(): unknown } | undefined)?.currentInitiator()
       const followup = (initiator as { followup?: unknown } | undefined)?.followup
+      const sessionId = (initiator as { session?: { id?: string } } | undefined)?.session?.id ?? ''
       if (typeof followup === 'function') {
         this.suspendedWatchers.set(result.requestId, initiator as { followup(message: unknown): void })
-        appendDiagLog('info', `send_and_wait ${result.requestId} suspended; initiator registered for background delivery`)
+        this.backgroundWaitSession.set(result.requestId, sessionId)
+        appendDiagLog('info', `send_and_wait ${result.requestId} suspended; initiator registered for background delivery (session=${sessionId || '(global)'})`)
       } else {
         appendDiagLog('warn', `send_and_wait ${result.requestId} suspended but no initiator available (reply will not be delivered to a session)`)
       }

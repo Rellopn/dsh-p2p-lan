@@ -105,6 +105,8 @@ export type P2PKey =
   | 'settings.noneToImport'
   | 'settings.workspacesUnavailable'
   | 'settings.importFailed'
+  | 'bg.waits'
+  | 'bg.hint'
   | 'settings.loading'
   | 'settings.configUnavailable'
 
@@ -211,6 +213,8 @@ export const zh: P2PDict = {
   'settings.noneToImport': '没有新的工作区可导入',
   'settings.workspacesUnavailable': '工作区不可用',
   'settings.importFailed': '导入失败',
+  'bg.waits': '{count} 个后台任务',
+  'bg.hint': '等待同事回复，回复或超时到达后会自动送达。',
   'settings.loading': '加载中…',
   'settings.configUnavailable': '配置不可用',
 }
@@ -309,6 +313,8 @@ export const en: P2PDict = {
   'settings.noneToImport': 'No new workspaces to import',
   'settings.workspacesUnavailable': 'Workspaces unavailable',
   'settings.importFailed': 'Import failed',
+  'bg.waits': '{count} background task(s)',
+  'bg.hint': 'waiting for colleagues; replies/timeouts arrive automatically.',
   'settings.loading': 'Loading…',
   'settings.configUnavailable': 'Config unavailable',
 }

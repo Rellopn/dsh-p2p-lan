@@ -34,6 +34,7 @@
   "files": [
     "src/client/index.ts",
     "src/client/i18n.ts",
+    "src/client/P2PBackgroundBar.tsx",
     "src/client/P2PFooterAction.tsx",
     "src/client/P2POverlay.tsx",
     "src/client/P2PSettingsSection.tsx",
